@@ -5,7 +5,7 @@ use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
     layout::{Constraint, Layout, Position},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Style},
     text::{Line, Span, Text},
     widgets::{Block, List, ListItem, Paragraph},
 };
@@ -14,20 +14,15 @@ fn main() -> ExitCode {
     let terminal = ratatui::init();
     let app_result = App::new().run(terminal);
     ratatui::restore();
-    if app_result.is_ok() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    app_result.unwrap_or(ExitCode::FAILURE)
 }
 
 fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
-    let s = s.trim_start();
-    if let Some(rest) = s.strip_prefix("0x") {
+    if let Some(rest) = s.to_lowercase().strip_prefix("0x") {
         u64::from_str_radix(rest, 16)
-    } else if let Some(rest) = s.strip_prefix("0o") {
+    } else if let Some(rest) = s.to_lowercase().strip_prefix("0o") {
         u64::from_str_radix(rest, 8)
-    } else if let Some(rest) = s.strip_prefix("0b") {
+    } else if let Some(rest) = s.to_lowercase().strip_prefix("0b") {
         u64::from_str_radix(rest, 2)
     } else {
         u64::from_str_radix(s, 10)
@@ -36,15 +31,15 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
 
 fn parse_expr(input: &str) -> Result<(u64, u64, String), String> {
     let re = Regex::new(concat!(
-        r"^",                                  // Beginning marker
-        r"\s*",                                // Match any preceding whitespace
-        r"(?<operand1>0[xX][0-9a-fA-F]+|\d+)", // Capture the first operand
-        r"\s*",                                // Match any whitespace
-        r"(?<operator>\+|-|\*|\/|<<|>>+)",     // Capture the operator
-        r"\s*",                                // Match any whitespace
-        r"(?<operand2>0[xX][0-9a-fA-F]+|\d+)", // Capture the second operand
-        r"\s*",                                // Match any trailing whitespace
-        r"$"                                   // End marker
+        r"^",                                                          // Beginning marker
+        r"\s*",                                                        // Match any preceding whitespace
+        r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the first operand
+        r"\s*",                                                        // Match any whitespace
+        r"(?<operator>\+|-|\*|\/|<<|>>+)",                             // Capture the operator
+        r"\s*",                                                        // Match any whitespace
+        r"(?<operand2>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the second operand
+        r"\s*",                                                        // Match any trailing whitespace
+        r"$"                                                           // End marker
     ))
     .unwrap();
     let captures = re.captures(input);
@@ -87,21 +82,28 @@ struct App {
     character_index: usize,
     /// Current input mode
     input_mode: InputMode,
+    /// History of previous inputs
+    input_history: Vec<String>,
+    /// Position within the input history list
+    input_history_index: usize,
     /// History of previous calculations
-    history: Vec<String>,
+    expression_history: Vec<String>,
 }
 
 enum InputMode {
-    Normal,
-    Editing,
+    ExpressionInput,
+    BitManipulation,
+    HistorySelect,
 }
 
 impl App {
     const fn new() -> Self {
         Self {
             input: String::new(),
-            input_mode: InputMode::Normal,
-            history: Vec::new(),
+            input_mode: InputMode::ExpressionInput,
+            input_history: Vec::new(),
+            input_history_index: 0,
+            expression_history: Vec::new(),
             character_index: 0,
         }
     }
@@ -118,6 +120,32 @@ impl App {
     fn move_cursor_right(&mut self) {
         let cursor_moved_right = self.character_index.saturating_add(1);
         self.character_index = self.clamp_cursor(cursor_moved_right);
+    }
+
+    fn get_previous_input(&mut self) {
+        if self.input_history_index == self.input_history.len() {
+            return;
+        }
+
+        self.input_history_index = self.input_history_index.saturating_add(1);
+        self.input = self.input_history[self.input_history_index - 1].clone();
+        self.character_index = self.clamp_cursor(self.input.len());
+    }
+
+    fn get_next_input(&mut self) {
+        match self.input_history_index {
+            0 => return,
+            1 => {
+                self.input_history_index = self.input_history_index.saturating_sub(1);
+                self.input.clear();
+                self.character_index = self.clamp_cursor(0);
+            }
+            _ => {
+                self.input_history_index = self.input_history_index.saturating_sub(1);
+                self.input = self.input_history[self.input_history_index - 1].clone();
+                self.character_index = self.clamp_cursor(self.input.len());
+            }
+        }
     }
 
     fn enter_char(&mut self, new_char: char) {
@@ -165,45 +193,54 @@ impl App {
     }
 
     fn submit_expression(&mut self) {
+        self.input_history_index = 0;
+        self.input_history.insert(0, self.input.clone());
         match parse_expr(&self.input) {
             Ok((operand1, operand2, operator)) => match compute(operand1, operand2, &operator) {
-                Ok(result) => self.history.push(format!(
+                Ok(result) => self.expression_history.push(format!(
                     "{} {} {} = {}",
                     operand1, operator, operand2, result
                 )),
-                Err(e) => self.history.push(format!("Computation error: {}", e)),
+                Err(e) => self
+                    .expression_history
+                    .push(format!("Computation error: {}", e)),
             },
-            Err(e) => self.history.push(format!("Parse error: {}", e)),
+            Err(e) => self.expression_history.push(format!("Parse error: {}", e)),
         }
         self.input.clear();
         self.reset_cursor();
     }
 
-    fn run(mut self, mut terminal: DefaultTerminal) -> Result<i32, std::io::Error> {
+    fn run(mut self, mut terminal: DefaultTerminal) -> Result<ExitCode, std::io::Error> {
         loop {
             terminal.draw(|frame| self.draw(frame))?;
 
             if let Event::Key(key) = event::read()? {
                 match self.input_mode {
-                    InputMode::Normal => match key.code {
-                        KeyCode::Char('e') => {
-                            self.input_mode = InputMode::Editing;
-                        }
-                        KeyCode::Char('q') => {
-                            return Ok(0);
-                        }
+                    InputMode::BitManipulation => match key.code {
+                        KeyCode::Tab => self.input_mode = InputMode::ExpressionInput,
+                        KeyCode::Char('q') => return Ok(ExitCode::SUCCESS),
                         _ => {}
                     },
-                    InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
+                    InputMode::ExpressionInput if key.kind == KeyEventKind::Press => match key.code
+                    {
+                        KeyCode::Tab => self.input_mode = InputMode::HistorySelect,
+                        KeyCode::Char('q') => return Ok(ExitCode::SUCCESS),
                         KeyCode::Enter => self.submit_expression(),
-                        KeyCode::Char(to_insert) => self.enter_char(to_insert),
                         KeyCode::Backspace => self.delete_char(),
                         KeyCode::Left => self.move_cursor_left(),
                         KeyCode::Right => self.move_cursor_right(),
-                        KeyCode::Esc => self.input_mode = InputMode::Normal,
+                        KeyCode::Up => self.get_previous_input(),
+                        KeyCode::Down => self.get_next_input(),
+                        KeyCode::Char(to_insert) => self.enter_char(to_insert),
                         _ => {}
                     },
-                    InputMode::Editing => {}
+                    InputMode::HistorySelect => match key.code {
+                        KeyCode::Tab => self.input_mode = InputMode::BitManipulation,
+                        KeyCode::Char('q') => return Ok(ExitCode::SUCCESS),
+                        _ => {}
+                    },
+                    _ => {}
                 }
             }
         }
@@ -215,65 +252,49 @@ impl App {
             Constraint::Length(3),
             Constraint::Min(1),
         ]);
-        let [help_area, input_area, history_area] = vertical.areas(frame.area());
+        let [help_area, input_area, expression_history_area] = vertical.areas(frame.area());
 
-        let (msg, style) = match self.input_mode {
-            InputMode::Normal => (
-                vec![
-                    "Press ".into(),
-                    "q".bold(),
-                    " to exit, ".into(),
-                    "e".bold(),
-                    " to start editing.".bold(),
-                ],
-                Style::default().add_modifier(Modifier::RAPID_BLINK),
-            ),
-            InputMode::Editing => (
-                vec![
-                    "Press ".into(),
-                    "Esc".bold(),
-                    " to stop editing, ".into(),
-                    "Enter".bold(),
-                    " to submit".into(),
-                ],
-                Style::default(),
-            ),
-        };
-        let text = Text::from(Line::from(msg)).patch_style(style);
+        let text = Text::from("FIXME: Add keybind help");
         let help_message = Paragraph::new(text);
         frame.render_widget(help_message, help_area);
 
-        let input = Paragraph::new(self.input.as_str())
-            .style(match self.input_mode {
-                InputMode::Normal => Style::default(),
-                InputMode::Editing => Style::default().fg(Color::Yellow),
-            })
-            .block(Block::bordered().title("Input"));
+        let input = Paragraph::new(self.input.as_str()).block(
+            Block::bordered()
+                .border_style(match self.input_mode {
+                    InputMode::ExpressionInput => Style::default().fg(Color::Yellow),
+                    _ => Style::default(),
+                })
+                .title("Input"),
+        );
         frame.render_widget(input, input_area);
         match self.input_mode {
-            // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
-            InputMode::Normal => {}
-
-            // Make the cursor visible and ask ratatui to put it at the specified coordinates after
-            // rendering
-            InputMode::Editing => frame.set_cursor_position(Position::new(
+            InputMode::ExpressionInput => frame.set_cursor_position(Position::new(
                 // Draw the cursor at the current position in the input field.
                 // This position is can be controlled via the left and right arrow key
                 input_area.x + self.character_index as u16 + 1,
                 // Move one line down, from the border to the input line
                 input_area.y + 1,
             )),
+            _ => {}
         }
 
-        let history: Vec<ListItem> = self
-            .history
+        let expression_history: Vec<ListItem> = self
+            .expression_history
             .iter()
+            .rev()
             .map(|m| {
                 let content = Line::from(Span::raw(m));
                 ListItem::new(content)
             })
             .collect();
-        let history = List::new(history).block(Block::bordered().title("History"));
-        frame.render_widget(history, history_area);
+        let expression_history = List::new(expression_history).block(
+            Block::bordered()
+                .border_style(match self.input_mode {
+                    InputMode::HistorySelect => Style::default().fg(Color::Yellow),
+                    _ => Style::default(),
+                })
+                .title("History"),
+        );
+        frame.render_widget(expression_history, expression_history_area);
     }
 }
