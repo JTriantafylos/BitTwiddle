@@ -222,7 +222,7 @@ impl App {
                         KeyCode::Char('q') => return Ok(ExitCode::SUCCESS),
                         _ => {}
                     },
-                    InputMode::ExpressionInput if key.kind == KeyEventKind::Press => match key.code
+                    InputMode::ExpressionInput => match key.code
                     {
                         KeyCode::Tab => self.input_mode = InputMode::HistorySelect,
                         KeyCode::Char('q') => return Ok(ExitCode::SUCCESS),
@@ -239,8 +239,7 @@ impl App {
                         KeyCode::Tab => self.input_mode = InputMode::BitManipulation,
                         KeyCode::Char('q') => return Ok(ExitCode::SUCCESS),
                         _ => {}
-                    },
-                    _ => {}
+                    }
                 }
             }
         }
