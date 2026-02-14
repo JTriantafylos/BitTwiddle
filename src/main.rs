@@ -230,6 +230,8 @@ impl App {
                         KeyCode::Backspace => self.delete_char(),
                         KeyCode::Left => self.move_cursor_left(),
                         KeyCode::Right => self.move_cursor_right(),
+                        KeyCode::Home => self.character_index = self.clamp_cursor(0),
+                        KeyCode::End => self.character_index = self.clamp_cursor(usize::MAX),
                         KeyCode::Up => self.get_previous_input(),
                         KeyCode::Down => self.get_next_input(),
                         KeyCode::Char(to_insert) => self.enter_char(to_insert),
