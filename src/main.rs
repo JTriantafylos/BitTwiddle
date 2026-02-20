@@ -89,14 +89,26 @@ enum InputMode {
     HistorySelect,
 }
 
-#[derive(Default)]
 struct BitTwiddleModel {
     running_state: RunningState,
-    val: Option<Result<u64, String>>,
+    val: Result<u64, String>,
     display_mode: DisplayMode,
     input_mode: InputMode,
     expression_input_text: String,
     expression_input_cursor_index: usize,
+}
+
+impl Default for BitTwiddleModel {
+    fn default() -> Self {
+        Self {
+            running_state: Default::default(),
+            val: Ok(0),
+            display_mode: Default::default(),
+            input_mode: Default::default(),
+            expression_input_text: Default::default(),
+            expression_input_cursor_index: Default::default(),
+        }
+    }
 }
 
 enum Message {
@@ -109,6 +121,7 @@ enum Message {
 fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
     match msg {
         Message::KeyPressed(key) => match key.code {
+            KeyCode::Tab => Some(Message::SwitchInputMode),
             KeyCode::Enter => Some(Message::SubmitExpression),
             KeyCode::Left => todo!(),
             KeyCode::Right => todo!(),
@@ -128,11 +141,11 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             model.val = match parse_expr(&model.expression_input_text) {
                 Ok((operand1, operand2, operator)) => {
                     match compute(operand1, operand2, &operator) {
-                        Ok(result) => Some(Ok(result)),
-                        Err(e) => Some(Err(format!("Computation error: {}", e))),
+                        Ok(result) => Ok(result),
+                        Err(e) => Err(format!("Computation error: {}", e)),
                     }
                 }
-                Err(e) => Some(Err(format!("Parse error: {}", e))),
+                Err(e) => Err(format!("Parse error: {}", e)),
             };
             model.expression_input_cursor_index = 0;
             model.expression_input_text.clear();
@@ -162,14 +175,14 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     let [value_area, input_area, expression_history_area] = vertical.areas(frame.area());
 
     let val_text = Text::from(match &model.val {
-        Some(val) => match val {
-            Ok(val) => val.to_string(),
-            Err(err) => err.to_string(),
-        },
-        None => "".to_string(),
+        Ok(val) => val.to_string(),
+        Err(err) => err.to_string(),
     });
     frame.render_widget(
-        Paragraph::new(val_text).block(Block::bordered()),
+        Paragraph::new(val_text).block(Block::bordered().border_style(match model.input_mode {
+            InputMode::BitManipulation => Style::default().fg(Color::Yellow),
+            _ => Style::default(),
+        })),
         value_area,
     );
 
