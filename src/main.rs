@@ -2,10 +2,10 @@ use regex::Regex;
 
 use ratatui::{
     Frame,
-    crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{self, Event, KeyCode, KeyEvent},
     layout::{Constraint, Layout, Position},
     style::{Color, Style},
-    text::Text,
+    text::{Line, Span, Text},
     widgets::{Block, List, ListItem, Paragraph},
 };
 
@@ -217,10 +217,11 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
 fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     let vertical = Layout::vertical([
         Constraint::Length(3),
+        Constraint::Length(4),
         Constraint::Length(3),
         Constraint::Min(1),
     ]);
-    let [value_area, input_area, expression_history_area] = vertical.areas(frame.area());
+    let [value_area, bit_area, input_area, expression_history_area] = vertical.areas(frame.area());
 
     let val_text = Text::from(match &model.val {
         Ok(val) => match model.display_mode {
@@ -256,6 +257,69 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
             input_area.y + 1,
         ))
     }
+
+    const BITS_PER_LINE: usize = 32;
+    const BITS_PER_WORD: usize = 16;
+    const BITS_PER_NIBBLE: usize = 4;
+    let display_value = model.val.clone().unwrap_or(0);
+    let bit_visualization_text = (0..2)
+        .rev()
+        .map(|line_num| {
+            Line::from(
+                (0..2)
+                    .rev()
+                    .flat_map(|word_num| {
+                        vec![
+                            Span::styled(
+                                (((line_num * BITS_PER_LINE) + (word_num * BITS_PER_WORD))
+                                    + (BITS_PER_WORD - 1))
+                                    .to_string(),
+                                Style::default().bold(),
+                            ),
+                            Span::raw("  "),
+                            Span::raw(
+                                (0..4)
+                                    .rev()
+                                    .map(|nibble_num| {
+                                        (0..4)
+                                            .rev()
+                                            .map(|nibble_index| {
+                                                if (display_value
+                                                    >> (((line_num * BITS_PER_LINE)
+                                                        + (word_num * BITS_PER_WORD)
+                                                        + (nibble_num * BITS_PER_NIBBLE))
+                                                        + nibble_index))
+                                                    & 1
+                                                    == 1
+                                                {
+                                                    "1"
+                                                } else {
+                                                    "0"
+                                                }
+                                            })
+                                            .collect::<Vec<&str>>()
+                                            .join(" ")
+                                    })
+                                    .collect::<Vec<String>>()
+                                    .join("  "),
+                            ),
+                            Span::raw("  "),
+                        ]
+                    })
+                    .collect::<Vec<Span>>(),
+            )
+        })
+        .collect::<Vec<Line>>();
+
+    let bit_visualization = Paragraph::new(bit_visualization_text).block(
+        Block::bordered()
+            .border_style(match model.input_mode {
+                InputMode::BitManipulation => Style::default().fg(Color::Yellow),
+                _ => Style::default(),
+            })
+            .title("Bits"),
+    );
+    frame.render_widget(bit_visualization, bit_area);
 
     let expression_history = List::new(vec![ListItem::new("Fix expression history!")]).block(
         Block::bordered()
