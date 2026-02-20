@@ -115,6 +115,7 @@ enum Message {
     KeyPressed(KeyEvent),
     SubmitExpression,
     SwitchInputMode,
+    SwitchDisplayMode,
     Quit,
 }
 
@@ -130,6 +131,7 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             KeyCode::Up => todo!(),
             KeyCode::Down => todo!(),
             KeyCode::Backspace => todo!(),
+            KeyCode::Char('m') => Some(Message::SwitchDisplayMode),
             KeyCode::Char(c) => {
                 model.expression_input_text.push(c);
                 model.expression_input_cursor_index += 1;
@@ -159,6 +161,14 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             };
             None
         }
+        Message::SwitchDisplayMode => {
+            match model.display_mode {
+                DisplayMode::Decimal => model.display_mode = DisplayMode::Hex,
+                DisplayMode::Hex => model.display_mode = DisplayMode::Octal,
+                DisplayMode::Octal => model.display_mode = DisplayMode::Decimal,
+            };
+            None
+        }
         Message::Quit => {
             model.running_state = RunningState::Done;
             None
@@ -175,7 +185,11 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     let [value_area, input_area, expression_history_area] = vertical.areas(frame.area());
 
     let val_text = Text::from(match &model.val {
-        Ok(val) => val.to_string(),
+        Ok(val) => match model.display_mode {
+            DisplayMode::Decimal => format!("{val}"),
+            DisplayMode::Hex => format!("{val:#X}"),
+            DisplayMode::Octal => format!("{val:#o}"),
+        },
         Err(err) => err.to_string(),
     });
     frame.render_widget(
