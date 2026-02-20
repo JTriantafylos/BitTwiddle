@@ -2,7 +2,7 @@ use regex::Regex;
 
 use ratatui::{
     Frame,
-    crossterm::event::{self, Event, KeyCode, KeyEvent},
+    crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     layout::{Constraint, Layout, Position},
     style::{Color, Style},
     text::Text,
@@ -81,12 +81,46 @@ enum DisplayMode {
     Octal,
 }
 
+impl DisplayMode {
+    fn prev(&self) -> Self {
+        match *self {
+            DisplayMode::Decimal => DisplayMode::Octal,
+            DisplayMode::Hex => DisplayMode::Decimal,
+            DisplayMode::Octal => DisplayMode::Hex,
+        }
+    }
+    fn next(&self) -> Self {
+        match *self {
+            DisplayMode::Decimal => DisplayMode::Hex,
+            DisplayMode::Hex => DisplayMode::Octal,
+            DisplayMode::Octal => DisplayMode::Decimal,
+        }
+    }
+}
+
 #[derive(Default, PartialEq, Eq)]
 enum InputMode {
     BitManipulation,
     #[default]
     ExpressionInput,
     HistorySelect,
+}
+
+impl InputMode {
+    fn prev(&self) -> Self {
+        match *self {
+            InputMode::BitManipulation => InputMode::HistorySelect,
+            InputMode::ExpressionInput => InputMode::BitManipulation,
+            InputMode::HistorySelect => InputMode::ExpressionInput,
+        }
+    }
+    fn next(&self) -> Self {
+        match *self {
+            InputMode::BitManipulation => InputMode::ExpressionInput,
+            InputMode::ExpressionInput => InputMode::HistorySelect,
+            InputMode::HistorySelect => InputMode::BitManipulation,
+        }
+    }
 }
 
 struct BitTwiddleModel {
@@ -114,15 +148,20 @@ impl Default for BitTwiddleModel {
 enum Message {
     KeyPressed(KeyEvent),
     SubmitExpression,
-    SwitchInputMode,
-    SwitchDisplayMode,
+    PrevInputMode,
+    NextInputMode,
+    PrevDisplayMode,
+    NextDisplayMode,
     Quit,
 }
 
 fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
     match msg {
         Message::KeyPressed(key) => match key.code {
-            KeyCode::Tab => Some(Message::SwitchInputMode),
+            KeyCode::BackTab => Some(Message::PrevInputMode),
+            KeyCode::Tab => Some(Message::NextInputMode),
+            KeyCode::Char('M') => Some(Message::PrevDisplayMode),
+            KeyCode::Char('m') => Some(Message::NextDisplayMode),
             KeyCode::Enter => Some(Message::SubmitExpression),
             KeyCode::Left => todo!(),
             KeyCode::Right => todo!(),
@@ -131,7 +170,6 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             KeyCode::Up => todo!(),
             KeyCode::Down => todo!(),
             KeyCode::Backspace => todo!(),
-            KeyCode::Char('m') => Some(Message::SwitchDisplayMode),
             KeyCode::Char(c) => {
                 model.expression_input_text.push(c);
                 model.expression_input_cursor_index += 1;
@@ -153,20 +191,20 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             model.expression_input_text.clear();
             None
         }
-        Message::SwitchInputMode => {
-            match model.input_mode {
-                InputMode::BitManipulation => model.input_mode = InputMode::ExpressionInput,
-                InputMode::ExpressionInput => model.input_mode = InputMode::HistorySelect,
-                InputMode::HistorySelect => model.input_mode = InputMode::BitManipulation,
-            };
+        Message::PrevInputMode => {
+            model.input_mode = model.input_mode.prev();
             None
         }
-        Message::SwitchDisplayMode => {
-            match model.display_mode {
-                DisplayMode::Decimal => model.display_mode = DisplayMode::Hex,
-                DisplayMode::Hex => model.display_mode = DisplayMode::Octal,
-                DisplayMode::Octal => model.display_mode = DisplayMode::Decimal,
-            };
+        Message::NextInputMode => {
+            model.input_mode = model.input_mode.next();
+            None
+        }
+        Message::PrevDisplayMode => {
+            model.display_mode = model.display_mode.prev();
+            None
+        }
+        Message::NextDisplayMode => {
+            model.display_mode = model.display_mode.next();
             None
         }
         Message::Quit => {
