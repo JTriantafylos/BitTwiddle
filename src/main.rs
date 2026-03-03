@@ -21,11 +21,11 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
     }
 }
 
-fn parse_expr(input: &str) -> Result<(u64, u64, String), String> {
+fn parse_expr(model: &BitTwiddleModel, input: &str) -> Result<(u64, u64, String), String> {
     let re = Regex::new(concat!(
-        r"^",                                                          // Beginning marker
+        r"^",                                                           // Beginning marker
         r"\s*", // Match any preceding whitespace
-        r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the first operand
+        r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?", // Capture the first operand
         r"\s*", // Match any whitespace
         r"(?<operator>\+|-|\*|\/|<<|>>|\||\&|\^+)", // Capture the operator
         r"\s*", // Match any whitespace
@@ -37,8 +37,15 @@ fn parse_expr(input: &str) -> Result<(u64, u64, String), String> {
     let captures = re.captures(input);
     match captures {
         Some(caps) => {
-            let operand1: u64 = parse_unsigned(&caps["operand1"])
-                .map_err(|e| format!("Error parsing operand 1 - {}", e))?;
+            let operand1_match = caps.name("operand1");
+            let operand1: u64 = match operand1_match {
+                Some(s) => parse_unsigned(s.as_str())
+                    .map_err(|e| format!("Error parsing operand 1 - {}", e))?,
+                None => model
+                    .val
+                    .clone()
+                    .map_err(|_e| format!("Malformed expression '{}'", input))?,
+            };
             let operand2: u64 = parse_unsigned(&caps["operand2"])
                 .map_err(|e| format!("Error parsing operand 2 - {}", e))?;
             let operator = String::from(&caps["operator"]);
@@ -183,7 +190,7 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             _ => None,
         },
         Message::SubmitExpression => {
-            model.val = match parse_expr(&model.expression_input_text) {
+            model.val = match parse_expr(model, &model.expression_input_text) {
                 Ok((operand1, operand2, operator)) => {
                     match compute(operand1, operand2, &operator) {
                         Ok(result) => {
