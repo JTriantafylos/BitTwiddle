@@ -55,7 +55,7 @@ fn compute(operand1: u64, operand2: u64, operator: &str) -> Result<u64, String> 
         "*" => Ok(operand1 * operand2),
         "/" => {
             if operand2 == 0 {
-                Err("division by zero".into())
+                Err("Division by zero".into())
             } else {
                 Ok(operand1 / operand2)
             }
