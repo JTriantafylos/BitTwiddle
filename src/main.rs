@@ -27,7 +27,7 @@ fn parse_expr(input: &str) -> Result<(u64, u64, String), String> {
         r"\s*", // Match any preceding whitespace
         r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the first operand
         r"\s*", // Match any whitespace
-        r"(?<operator>\+|-|\*|\/|<<|>>+)", // Capture the operator
+        r"(?<operator>\+|-|\*|\/|<<|>>|\||\&|\^+)", // Capture the operator
         r"\s*", // Match any whitespace
         r"(?<operand2>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the second operand
         r"\s*", // Match any trailing whitespace
@@ -62,6 +62,9 @@ fn compute(operand1: u64, operand2: u64, operator: &str) -> Result<u64, String> 
         }
         "<<" => Ok(operand1 << operand2),
         ">>" => Ok(operand1 >> operand2),
+        "|" => Ok(operand1 | operand2),
+        "&" => Ok(operand1 & operand2),
+        "^" => Ok(operand1 ^ operand2),
         _ => Err(format!("Unsupported operator: {}", operator)),
     }
 }
