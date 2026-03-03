@@ -221,7 +221,10 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
         Constraint::Length(3),
         Constraint::Min(1),
     ]);
-    let [value_area, bit_area, input_area, expression_history_area] = vertical.areas(frame.area());
+    let [value_areas, bit_area, input_area, expression_history_area] = vertical.areas(frame.area());
+
+    let [value_area, mode_area] =
+        Layout::horizontal([Constraint::Min(1), Constraint::Length(5)]).areas(value_areas);
 
     let val_text = Text::from(match &model.val {
         Ok(val) => match model.display_mode {
@@ -238,6 +241,35 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
         })),
         value_area,
     );
+
+    let dec_indicator = Span::styled(
+        "D",
+        match model.display_mode {
+            DisplayMode::Decimal => Style::default().underlined(),
+            _ => Style::default().dim(),
+        },
+    );
+    let hex_indicator = Span::styled(
+        "H",
+        match model.display_mode {
+            DisplayMode::Hex => Style::default().underlined(),
+            _ => Style::default().dim(),
+        },
+    );
+    let oct_indicator = Span::styled(
+        "O",
+        match model.display_mode {
+            DisplayMode::Octal => Style::default().underlined(),
+            _ => Style::default().dim(),
+        },
+    );
+    let mode_widget = Paragraph::new(Line::from(vec![
+        dec_indicator,
+        hex_indicator,
+        oct_indicator,
+    ]))
+    .block(Block::bordered());
+    frame.render_widget(mode_widget, mode_area);
 
     let input = Paragraph::new(model.expression_input_text.as_str()).block(
         Block::bordered()
