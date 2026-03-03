@@ -130,6 +130,7 @@ struct BitTwiddleModel {
     input_mode: InputMode,
     expression_input_text: String,
     expression_input_cursor_index: usize,
+    expression_input_history: Vec<String>,
 }
 
 impl Default for BitTwiddleModel {
@@ -141,6 +142,7 @@ impl Default for BitTwiddleModel {
             input_mode: Default::default(),
             expression_input_text: Default::default(),
             expression_input_cursor_index: Default::default(),
+            expression_input_history: Vec::default(),
         }
     }
 }
@@ -181,7 +183,13 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             model.val = match parse_expr(&model.expression_input_text) {
                 Ok((operand1, operand2, operator)) => {
                     match compute(operand1, operand2, &operator) {
-                        Ok(result) => Ok(result),
+                        Ok(result) => {
+                            model.expression_input_history.push(format!(
+                                "{} {} {} = {}",
+                                operand1, operator, operand2, result
+                            ));
+                            Ok(result)
+                        }
                         Err(e) => Err(format!("Computation error: {}", e)),
                     }
                 }
@@ -353,7 +361,14 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     );
     frame.render_widget(bit_visualization, bit_area);
 
-    let expression_history = List::new(vec![ListItem::new("Fix expression history!")]).block(
+    let expression_history = List::new(
+        model
+            .expression_input_history
+            .iter()
+            .rev()
+            .map(|e| ListItem::new(e.clone())),
+    )
+    .block(
         Block::bordered()
             .border_style(match model.input_mode {
                 InputMode::HistorySelect => Style::default().fg(Color::Yellow),
