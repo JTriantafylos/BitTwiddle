@@ -366,7 +366,7 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
             .expression_input_history
             .iter()
             .rev()
-            .map(|e| ListItem::new(e.clone())),
+            .map(|e| ListItem::new(e.as_str())),
     )
     .block(
         Block::bordered()
