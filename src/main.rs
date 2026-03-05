@@ -178,19 +178,31 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             KeyCode::Char('M') => Some(Message::PrevDisplayMode),
             KeyCode::Char('m') => Some(Message::NextDisplayMode),
             KeyCode::Char('c') => Some(Message::ClearInput),
-            KeyCode::Enter if model.input_mode == InputMode::ExpressionInput => Some(Message::SubmitExpression),
+
+            KeyCode::Enter if model.input_mode == InputMode::ExpressionInput => {
+                Some(Message::SubmitExpression)
+            }
             KeyCode::Left if model.input_mode == InputMode::ExpressionInput => todo!(),
             KeyCode::Right if model.input_mode == InputMode::ExpressionInput => todo!(),
             KeyCode::Home if model.input_mode == InputMode::ExpressionInput => todo!(),
             KeyCode::End if model.input_mode == InputMode::ExpressionInput => todo!(),
             KeyCode::Up if model.input_mode == InputMode::ExpressionInput => todo!(),
             KeyCode::Down if model.input_mode == InputMode::ExpressionInput => todo!(),
-            KeyCode::Backspace if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Backspace if model.input_mode == InputMode::ExpressionInput => {
+                if !model.expression_input_text.is_empty()
+                    && model.expression_input_cursor_index != 0
+                {
+                    model.expression_input_text.pop();
+                    model.expression_input_cursor_index -= 1;
+                }
+                None
+            }
             KeyCode::Char(c) if model.input_mode == InputMode::ExpressionInput => {
                 model.expression_input_text.push(c);
                 model.expression_input_cursor_index += 1;
                 None
             }
+
             _ => None,
         },
         Message::ClearInput => {
