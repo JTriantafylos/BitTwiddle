@@ -1,3 +1,5 @@
+use std::ops::{BitAnd, BitOr, BitXor};
+
 use regex::Regex;
 
 use ratatui::{
@@ -57,21 +59,21 @@ fn parse_expr(model: &BitTwiddleModel, input: &str) -> Result<(u64, u64, String)
 
 fn compute(operand1: u64, operand2: u64, operator: &str) -> Result<u64, String> {
     match operator {
-        "+" => Ok(operand1 + operand2),
-        "-" => Ok(operand1 - operand2),
-        "*" => Ok(operand1 * operand2),
-        "/" => {
-            if operand2 == 0 {
-                Err("Division by zero".into())
-            } else {
-                Ok(operand1 / operand2)
-            }
-        }
-        "<<" => Ok(operand1 << operand2),
-        ">>" => Ok(operand1 >> operand2),
-        "|" => Ok(operand1 | operand2),
-        "&" => Ok(operand1 & operand2),
-        "^" => Ok(operand1 ^ operand2),
+        "+" => Ok(operand1.wrapping_add(operand2)),
+        "-" => Ok(operand1.wrapping_sub(operand2)),
+        "*" => Ok(operand1.wrapping_mul(operand2)),
+        "/" => operand1
+            .checked_div(operand2)
+            .ok_or("Division by zero".into()),
+        "<<" => operand1
+            .checked_shl(operand2 as u32)
+            .ok_or(format!("Invalid left-shift: {}", operand2)),
+        ">>" => operand1
+            .checked_shr(operand2 as u32)
+            .ok_or(format!("Invalid right-shift: {}", operand2)),
+        "|" => Ok(operand1.bitor(operand2)),
+        "&" => Ok(operand1.bitand(operand2)),
+        "^" => Ok(operand1.bitxor(operand2)),
         _ => Err(format!("Unsupported operator: {}", operator)),
     }
 }
