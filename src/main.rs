@@ -178,15 +178,15 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             KeyCode::Char('M') => Some(Message::PrevDisplayMode),
             KeyCode::Char('m') => Some(Message::NextDisplayMode),
             KeyCode::Char('c') => Some(Message::ClearInput),
-            KeyCode::Enter => Some(Message::SubmitExpression),
-            KeyCode::Left => todo!(),
-            KeyCode::Right => todo!(),
-            KeyCode::Home => todo!(),
-            KeyCode::End => todo!(),
-            KeyCode::Up => todo!(),
-            KeyCode::Down => todo!(),
-            KeyCode::Backspace => todo!(),
-            KeyCode::Char(c) => {
+            KeyCode::Enter if model.input_mode == InputMode::ExpressionInput => Some(Message::SubmitExpression),
+            KeyCode::Left if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Right if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Home if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::End if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Up if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Down if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Backspace if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Char(c) if model.input_mode == InputMode::ExpressionInput => {
                 model.expression_input_text.push(c);
                 model.expression_input_cursor_index += 1;
                 None
