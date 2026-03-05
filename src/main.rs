@@ -211,7 +211,9 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                 if !model.expression_input_text.is_empty()
                     && model.expression_input_cursor_index > 0
                 {
-                    model.expression_input_text.remove(model.expression_input_cursor_index - 1);
+                    model
+                        .expression_input_text
+                        .remove(model.expression_input_cursor_index - 1);
                     Some(Message::ShiftInputCursor(-1))
                 } else {
                     None
@@ -221,12 +223,16 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                 if !model.expression_input_text.is_empty()
                     && model.expression_input_cursor_index < model.expression_input_text.len()
                 {
-                    model.expression_input_text.remove(model.expression_input_cursor_index);
+                    model
+                        .expression_input_text
+                        .remove(model.expression_input_cursor_index);
                 }
                 None
             }
             KeyCode::Char(c) if model.input_mode == InputMode::ExpressionInput => {
-                model.expression_input_text.insert(model.expression_input_cursor_index, c);
+                model
+                    .expression_input_text
+                    .insert(model.expression_input_cursor_index, c);
                 Some(Message::ShiftInputCursor(1))
             }
 
