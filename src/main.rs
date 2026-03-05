@@ -167,6 +167,7 @@ enum Message {
     KeyPressed(KeyEvent),
     ClearInput,
     SubmitExpression,
+    ShiftInputCursor(isize),
     PrevInputMode,
     NextInputMode,
     PrevInputHistory,
@@ -189,26 +190,16 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                 Some(Message::SubmitExpression)
             }
             KeyCode::Left if model.input_mode == InputMode::ExpressionInput => {
-                model.expression_input_cursor_index = model
-                    .expression_input_cursor_index
-                    .saturating_sub(1)
-                    .clamp(0, model.expression_input_text.len());
-                None
+                Some(Message::ShiftInputCursor(-1))
             }
             KeyCode::Right if model.input_mode == InputMode::ExpressionInput => {
-                model.expression_input_cursor_index = model
-                    .expression_input_cursor_index
-                    .saturating_add(1)
-                    .clamp(0, model.expression_input_text.len());
-                None
+                Some(Message::ShiftInputCursor(1))
             }
             KeyCode::Home if model.input_mode == InputMode::ExpressionInput => {
-                model.expression_input_cursor_index = 0;
-                None
+                Some(Message::ShiftInputCursor(isize::MIN))
             }
             KeyCode::End if model.input_mode == InputMode::ExpressionInput => {
-                model.expression_input_cursor_index = model.expression_input_text.len();
-                None
+                Some(Message::ShiftInputCursor(isize::MAX))
             }
             KeyCode::Up if model.input_mode == InputMode::ExpressionInput => {
                 Some(Message::NextInputHistory)
@@ -221,14 +212,14 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                     && model.expression_input_cursor_index != 0
                 {
                     model.expression_input_text.pop();
-                    model.expression_input_cursor_index -= 1;
+                    Some(Message::ShiftInputCursor(-1))
+                } else {
+                    None
                 }
-                None
             }
             KeyCode::Char(c) if model.input_mode == InputMode::ExpressionInput => {
                 model.expression_input_text.push(c);
-                model.expression_input_cursor_index += 1;
-                None
+                Some(Message::ShiftInputCursor(1))
             }
 
             _ => None,
@@ -258,6 +249,13 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             model.expression_input_cursor_index = 0;
             model.expression_input_text.clear();
             model.expression_input_history_index = None;
+            None
+        }
+        Message::ShiftInputCursor(offset) => {
+            model.expression_input_cursor_index = model
+                .expression_input_cursor_index
+                .saturating_add_signed(offset)
+                .clamp(0, model.expression_input_text.len());
             None
         }
         Message::PrevInputMode => {
