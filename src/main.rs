@@ -159,6 +159,7 @@ impl Default for BitTwiddleModel {
 
 enum Message {
     KeyPressed(KeyEvent),
+    ClearInput,
     SubmitExpression,
     PrevInputMode,
     NextInputMode,
@@ -174,6 +175,7 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             KeyCode::Tab => Some(Message::NextInputMode),
             KeyCode::Char('M') => Some(Message::PrevDisplayMode),
             KeyCode::Char('m') => Some(Message::NextDisplayMode),
+            KeyCode::Char('c') => Some(Message::ClearInput),
             KeyCode::Enter => Some(Message::SubmitExpression),
             KeyCode::Left => todo!(),
             KeyCode::Right => todo!(),
@@ -189,6 +191,10 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             }
             _ => None,
         },
+        Message::ClearInput => {
+            model.val = Ok(0);
+            None
+        }
         Message::SubmitExpression => {
             model.val = match parse_expr(model, &model.expression_input_text) {
                 Ok((operand1, operand2, operator)) => {
