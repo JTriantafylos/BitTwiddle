@@ -182,8 +182,20 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             KeyCode::Enter if model.input_mode == InputMode::ExpressionInput => {
                 Some(Message::SubmitExpression)
             }
-            KeyCode::Left if model.input_mode == InputMode::ExpressionInput => todo!(),
-            KeyCode::Right if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Left if model.input_mode == InputMode::ExpressionInput => {
+                model.expression_input_cursor_index = model
+                    .expression_input_cursor_index
+                    .saturating_sub(1)
+                    .clamp(0, model.expression_input_text.len());
+                None
+            }
+            KeyCode::Right if model.input_mode == InputMode::ExpressionInput => {
+                model.expression_input_cursor_index = model
+                    .expression_input_cursor_index
+                    .saturating_add(1)
+                    .clamp(0, model.expression_input_text.len());
+                None
+            }
             KeyCode::Home if model.input_mode == InputMode::ExpressionInput => todo!(),
             KeyCode::End if model.input_mode == InputMode::ExpressionInput => todo!(),
             KeyCode::Up if model.input_mode == InputMode::ExpressionInput => todo!(),
