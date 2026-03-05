@@ -169,6 +169,8 @@ enum Message {
     SubmitExpression,
     PrevInputMode,
     NextInputMode,
+    PrevInputHistory,
+    NextInputHistory,
     PrevDisplayMode,
     NextDisplayMode,
     Quit,
@@ -209,49 +211,10 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                 None
             }
             KeyCode::Up if model.input_mode == InputMode::ExpressionInput => {
-                if !model.expression_input_history.is_empty() {
-                    let index = match model.expression_input_history_index {
-                        None => 0,
-                        Some(n) => n
-                            .saturating_add(1)
-                            .clamp(0, model.expression_input_history.len() - 1),
-                    };
-                    model.expression_input_text = model
-                        .expression_input_history
-                        .iter()
-                        .rev()
-                        .nth(index)
-                        .unwrap()
-                        .clone();
-                    model.expression_input_cursor_index = model.expression_input_text.len();
-                    model.expression_input_history_index = Some(index);
-                }
-                None
+                Some(Message::NextInputHistory)
             }
             KeyCode::Down if model.input_mode == InputMode::ExpressionInput => {
-                match model.expression_input_history_index {
-                    Some(0) => {
-                        model.expression_input_text = String::default();
-                        model.expression_input_cursor_index = 0;
-                        model.expression_input_history_index = None;
-                    }
-                    Some(n) if !model.expression_input_history.is_empty() => {
-                        let index = n
-                            .saturating_sub(1)
-                            .clamp(0, model.expression_input_history.len() - 1);
-                        model.expression_input_text = model
-                            .expression_input_history
-                            .iter()
-                            .rev()
-                            .nth(index)
-                            .unwrap()
-                            .clone();
-                        model.expression_input_cursor_index = model.expression_input_text.len();
-                        model.expression_input_history_index = Some(index);
-                    }
-                    _ => {}
-                };
-                None
+                Some(Message::PrevInputHistory)
             }
             KeyCode::Backspace if model.input_mode == InputMode::ExpressionInput => {
                 if !model.expression_input_text.is_empty()
@@ -303,6 +266,51 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         }
         Message::NextInputMode => {
             model.input_mode = model.input_mode.next();
+            None
+        }
+        Message::PrevInputHistory => {
+            match model.expression_input_history_index {
+                Some(0) => {
+                    model.expression_input_text = String::default();
+                    model.expression_input_cursor_index = 0;
+                    model.expression_input_history_index = None;
+                }
+                Some(n) if !model.expression_input_history.is_empty() => {
+                    let index = n
+                        .saturating_sub(1)
+                        .clamp(0, model.expression_input_history.len() - 1);
+                    model.expression_input_text = model
+                        .expression_input_history
+                        .iter()
+                        .rev()
+                        .nth(index)
+                        .unwrap()
+                        .clone();
+                    model.expression_input_cursor_index = model.expression_input_text.len();
+                    model.expression_input_history_index = Some(index);
+                }
+                _ => {}
+            };
+            None
+        }
+        Message::NextInputHistory => {
+            if !model.expression_input_history.is_empty() {
+                let index = match model.expression_input_history_index {
+                    None => 0,
+                    Some(n) => n
+                        .saturating_add(1)
+                        .clamp(0, model.expression_input_history.len() - 1),
+                };
+                model.expression_input_text = model
+                    .expression_input_history
+                    .iter()
+                    .rev()
+                    .nth(index)
+                    .unwrap()
+                    .clone();
+                model.expression_input_cursor_index = model.expression_input_text.len();
+                model.expression_input_history_index = Some(index);
+            }
             None
         }
         Message::PrevDisplayMode => {
