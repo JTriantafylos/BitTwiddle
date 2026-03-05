@@ -41,9 +41,9 @@ fn parse_expr(model: &BitTwiddleModel, input: &str) -> Result<(u64, u64, String)
             let operand1: u64 = match operand1_match {
                 Some(s) => parse_unsigned(s.as_str())
                     .map_err(|e| format!("Error parsing operand 1 - {}", e))?,
-                None => model
+                None => *model
                     .val
-                    .clone()
+                    .as_ref()
                     .map_err(|_e| format!("Malformed expression '{}'", input))?,
             };
             let operand2: u64 = parse_unsigned(&caps["operand2"])
@@ -317,7 +317,7 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     const BITS_PER_LINE: usize = 32;
     const BITS_PER_WORD: usize = 16;
     const BITS_PER_NIBBLE: usize = 4;
-    let display_value = model.val.clone().unwrap_or(0);
+    let display_value = model.val.as_ref().unwrap_or(&0);
     let bit_visualization_text = (0..2)
         .rev()
         .map(|line_num| {
