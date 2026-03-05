@@ -209,9 +209,9 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             }
             KeyCode::Backspace if model.input_mode == InputMode::ExpressionInput => {
                 if !model.expression_input_text.is_empty()
-                    && model.expression_input_cursor_index != 0
+                    && model.expression_input_cursor_index > 0
                 {
-                    model.expression_input_text.pop();
+                    model.expression_input_text.remove(model.expression_input_cursor_index - 1);
                     Some(Message::ShiftInputCursor(-1))
                 } else {
                     None
