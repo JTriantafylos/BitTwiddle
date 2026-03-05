@@ -144,7 +144,7 @@ struct BitTwiddleModel {
     expression_input_cursor_index: usize,
     expression_input_history: Vec<String>,
     expression_input_history_index: Option<usize>,
-    calculation_history: Vec<String>,
+    calculation_history: Vec<(u64, String, u64, u64)>,
 }
 
 impl Default for BitTwiddleModel {
@@ -282,10 +282,9 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                             model
                                 .expression_input_history
                                 .push(model.expression_input_text.clone());
-                            model.calculation_history.push(format!(
-                                "{} {} {} = {}",
-                                operand1, operator, operand2, result
-                            ));
+                            model
+                                .calculation_history
+                                .push((operand1, operator, operand2, result));
                             Ok(result)
                         }
                         Err(e) => Err(format!("Computation error: {}", e)),
@@ -460,21 +459,32 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     );
     frame.render_widget(bit_visualization, bit_area);
 
-    let expression_history = List::new(
-        model
-            .calculation_history
-            .iter()
-            .rev()
-            .map(|e| ListItem::new(e.as_str())),
-    )
-    .block(
-        Block::bordered()
-            .border_style(match model.input_mode {
-                InputMode::HistorySelect => Style::default().fg(Color::Yellow),
-                _ => Style::default(),
-            })
-            .title("History"),
-    );
+    let expression_history =
+        List::new(
+            model
+                .calculation_history
+                .iter()
+                .rev()
+                .map(|e| match model.display_mode {
+                    DisplayMode::Decimal => {
+                        ListItem::new(format!("{} {} {} = {}", e.0, e.1, e.2, e.3))
+                    }
+                    DisplayMode::Hex => {
+                        ListItem::new(format!("{:#X} {} {:#X} = {:#X}", e.0, e.1, e.2, e.3))
+                    }
+                    DisplayMode::Octal => {
+                        ListItem::new(format!("{:#o} {} {:#o} = {:#o}", e.0, e.1, e.2, e.3))
+                    }
+                }),
+        )
+        .block(
+            Block::bordered()
+                .border_style(match model.input_mode {
+                    InputMode::HistorySelect => Style::default().fg(Color::Yellow),
+                    _ => Style::default(),
+                })
+                .title("History"),
+        );
     frame.render_widget(expression_history, expression_history_area);
 }
 
