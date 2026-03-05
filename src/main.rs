@@ -226,7 +226,7 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                 None
             }
             KeyCode::Char(c) if model.input_mode == InputMode::ExpressionInput => {
-                model.expression_input_text.push(c);
+                model.expression_input_text.insert(model.expression_input_cursor_index, c);
                 Some(Message::ShiftInputCursor(1))
             }
 
