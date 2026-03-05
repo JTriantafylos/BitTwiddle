@@ -143,6 +143,8 @@ struct BitTwiddleModel {
     expression_input_text: String,
     expression_input_cursor_index: usize,
     expression_input_history: Vec<String>,
+    expression_input_history_index: Option<usize>,
+    calculation_history: Vec<String>,
 }
 
 impl Default for BitTwiddleModel {
@@ -155,6 +157,8 @@ impl Default for BitTwiddleModel {
             expression_input_text: Default::default(),
             expression_input_cursor_index: Default::default(),
             expression_input_history: Vec::default(),
+            expression_input_history_index: None,
+            calculation_history: Vec::default(),
         }
     }
 }
@@ -204,8 +208,51 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                 model.expression_input_cursor_index = model.expression_input_text.len();
                 None
             }
-            KeyCode::Up if model.input_mode == InputMode::ExpressionInput => todo!(),
-            KeyCode::Down if model.input_mode == InputMode::ExpressionInput => todo!(),
+            KeyCode::Up if model.input_mode == InputMode::ExpressionInput => {
+                if !model.expression_input_history.is_empty() {
+                    let index = match model.expression_input_history_index {
+                        None => 0,
+                        Some(n) => n
+                            .saturating_add(1)
+                            .clamp(0, model.expression_input_history.len() - 1),
+                    };
+                    model.expression_input_text = model
+                        .expression_input_history
+                        .iter()
+                        .rev()
+                        .nth(index)
+                        .unwrap()
+                        .clone();
+                    model.expression_input_cursor_index = model.expression_input_text.len();
+                    model.expression_input_history_index = Some(index);
+                }
+                None
+            }
+            KeyCode::Down if model.input_mode == InputMode::ExpressionInput => {
+                match model.expression_input_history_index {
+                    Some(0) => {
+                        model.expression_input_text = String::default();
+                        model.expression_input_cursor_index = 0;
+                        model.expression_input_history_index = None;
+                    }
+                    Some(n) if !model.expression_input_history.is_empty() => {
+                        let index = n
+                            .saturating_sub(1)
+                            .clamp(0, model.expression_input_history.len() - 1);
+                        model.expression_input_text = model
+                            .expression_input_history
+                            .iter()
+                            .rev()
+                            .nth(index)
+                            .unwrap()
+                            .clone();
+                        model.expression_input_cursor_index = model.expression_input_text.len();
+                        model.expression_input_history_index = Some(index);
+                    }
+                    _ => {}
+                };
+                None
+            }
             KeyCode::Backspace if model.input_mode == InputMode::ExpressionInput => {
                 if !model.expression_input_text.is_empty()
                     && model.expression_input_cursor_index != 0
@@ -232,7 +279,10 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                 Ok((operand1, operand2, operator)) => {
                     match compute(operand1, operand2, &operator) {
                         Ok(result) => {
-                            model.expression_input_history.push(format!(
+                            model
+                                .expression_input_history
+                                .push(model.expression_input_text.clone());
+                            model.calculation_history.push(format!(
                                 "{} {} {} = {}",
                                 operand1, operator, operand2, result
                             ));
@@ -245,6 +295,7 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             };
             model.expression_input_cursor_index = 0;
             model.expression_input_text.clear();
+            model.expression_input_history_index = None;
             None
         }
         Message::PrevInputMode => {
@@ -411,7 +462,7 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
 
     let expression_history = List::new(
         model
-            .expression_input_history
+            .calculation_history
             .iter()
             .rev()
             .map(|e| ListItem::new(e.as_str())),
