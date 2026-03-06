@@ -364,7 +364,7 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
         Paragraph::new(val_text).block(Block::bordered().border_style(match model.input_mode {
             InputMode::BitManipulation => Style::default().fg(Color::Yellow),
             _ => Style::default(),
-        })),
+        })).centered(),
         value_area,
     );
 
@@ -476,7 +476,7 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
                 _ => Style::default(),
             })
             .title("Bits"),
-    );
+    ).centered();
     frame.render_widget(bit_visualization, bit_area);
 
     let expression_history =
