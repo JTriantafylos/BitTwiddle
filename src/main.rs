@@ -346,8 +346,9 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
         Constraint::Length(4),
         Constraint::Length(3),
         Constraint::Min(1),
+        Constraint::Length(1),
     ]);
-    let [value_areas, bit_area, input_area, expression_history_area] = vertical.areas(frame.area());
+    let [value_areas, bit_area, input_area, expression_history_area, help_area] = vertical.areas(frame.area());
 
     let [value_area, mode_area] =
         Layout::horizontal([Constraint::Min(1), Constraint::Length(5)]).areas(value_areas);
@@ -506,6 +507,13 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
                 .title("History"),
         );
     frame.render_widget(expression_history, expression_history_area);
+
+    let help_text = Line::from(vec![
+        "[c] Clear",
+        "[m] Cycle display mode (forward)",
+        "[M] Cycle display mode (backward)",
+    ].join(" "));
+    frame.render_widget(Paragraph::new(help_text).centered(), help_area);
 }
 
 fn handle_event() -> Result<Option<Message>, std::io::Error> {
