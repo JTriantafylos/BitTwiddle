@@ -100,11 +100,182 @@ impl Default for BitTwiddleModel {
     }
 }
 
+impl BitTwiddleModel {
+    fn clear_input(&mut self) -> Option<Message> {
+        self.value = 0;
+        self.error = None;
+        None
+    }
+
+    fn submit_expression(&mut self) -> Option<Message> {
+        match parse_expr(self.value, &self.expression_input_text) {
+            Ok(expression) => {
+                match compute(
+                    expression.operand1,
+                    expression.operand2,
+                    expression.operator,
+                ) {
+                    Ok(result) => {
+                        self.value = result;
+                        self.error = None;
+                        self.expression_input_history
+                            .push(self.expression_input_text.clone());
+                        self.calculation_history.push((
+                            expression.operand1,
+                            expression.operator,
+                            expression.operand2,
+                            result,
+                        ));
+                    }
+                    Err(e) => {
+                        self.error = Some(format!("Computation error: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                self.error = Some(format!("Parse error: {}", e));
+            }
+        };
+        self.reset_expression_input();
+        None
+    }
+
+    fn reset_expression_input(&mut self) {
+        self.expression_input_cursor_index = 0;
+        self.expression_input_text.clear();
+        self.expression_input_history_index = None;
+    }
+
+    fn shift_input_cursor(&mut self, offset: isize) -> Option<Message> {
+        self.expression_input_cursor_index = self
+            .expression_input_cursor_index
+            .saturating_add_signed(offset)
+            .clamp(0, self.expression_input_text.len());
+        None
+    }
+
+    fn insert_input_char(&mut self, c: char) -> Option<Message> {
+        self.expression_input_text
+            .insert(self.expression_input_cursor_index, c);
+        Some(Message::ShiftInputCursor(1))
+    }
+
+    fn backspace_input_char(&mut self) -> Option<Message> {
+        if !self.expression_input_text.is_empty() && self.expression_input_cursor_index > 0 {
+            self.expression_input_text
+                .remove(self.expression_input_cursor_index - 1);
+            Some(Message::ShiftInputCursor(-1))
+        } else {
+            None
+        }
+    }
+
+    fn delete_input_char(&mut self) -> Option<Message> {
+        if !self.expression_input_text.is_empty()
+            && self.expression_input_cursor_index < self.expression_input_text.len()
+        {
+            self.expression_input_text
+                .remove(self.expression_input_cursor_index);
+        }
+        None
+    }
+
+    fn shift_selected_bit(&mut self, offset: isize) -> Option<Message> {
+        self.selected_bit_index = self
+            .selected_bit_index
+            .saturating_add_signed(offset)
+            .clamp(0, 63);
+        None
+    }
+
+    fn toggle_selected_bit(&mut self) -> Option<Message> {
+        self.value ^= 1_u64 << self.selected_bit_index;
+        self.error = None;
+        None
+    }
+
+    fn prev_input_mode(&mut self) -> Option<Message> {
+        self.input_mode = self.input_mode.prev();
+        None
+    }
+
+    fn next_input_mode(&mut self) -> Option<Message> {
+        self.input_mode = self.input_mode.next();
+        None
+    }
+
+    fn prev_display_mode(&mut self) -> Option<Message> {
+        self.display_mode = self.display_mode.prev();
+        None
+    }
+
+    fn next_display_mode(&mut self) -> Option<Message> {
+        self.display_mode = self.display_mode.next();
+        None
+    }
+
+    fn dismiss_error(&mut self) -> Option<Message> {
+        self.error = None;
+        None
+    }
+
+    fn quit(&mut self) -> Option<Message> {
+        self.running_state = RunningState::Done;
+        None
+    }
+
+    fn prev_input_history(&mut self) -> Option<Message> {
+        match self.expression_input_history_index {
+            Some(0) => {
+                self.expression_input_text = String::default();
+                self.expression_input_cursor_index = 0;
+                self.expression_input_history_index = None;
+            }
+            Some(n) if !self.expression_input_history.is_empty() => {
+                let index = n
+                    .saturating_sub(1)
+                    .clamp(0, self.expression_input_history.len() - 1);
+                self.load_input_history(index);
+            }
+            _ => {}
+        };
+        None
+    }
+
+    fn next_input_history(&mut self) -> Option<Message> {
+        if !self.expression_input_history.is_empty() {
+            let index = match self.expression_input_history_index {
+                None => 0,
+                Some(n) => n
+                    .saturating_add(1)
+                    .clamp(0, self.expression_input_history.len() - 1),
+            };
+            self.load_input_history(index);
+        }
+        None
+    }
+
+    fn load_input_history(&mut self, index: usize) {
+        self.expression_input_text = self
+            .expression_input_history
+            .iter()
+            .rev()
+            .nth(index)
+            .unwrap()
+            .clone();
+        self.expression_input_cursor_index = self.expression_input_text.len();
+        self.expression_input_history_index = Some(index);
+    }
+}
+
 enum Message {
     KeyPressed(KeyEvent),
     ClearInput,
     SubmitExpression,
     ShiftInputCursor(isize),
+    InsertInputChar(char),
+    BackspaceInputChar,
+    DeleteInputChar,
     ShiftSelectedBit(isize),
     ToggleSelectedBit,
     PrevInputMode,
@@ -117,212 +288,72 @@ enum Message {
     Quit,
 }
 
+fn map_key_to_message(model: &BitTwiddleModel, key: KeyEvent) -> Option<Message> {
+    match key.code {
+        KeyCode::BackTab => Some(Message::PrevInputMode),
+        KeyCode::Tab => Some(Message::NextInputMode),
+        KeyCode::Char('M') => Some(Message::PrevDisplayMode),
+        KeyCode::Char('m') => Some(Message::NextDisplayMode),
+        KeyCode::Char('c') => Some(Message::ClearInput),
+        KeyCode::Esc => Some(Message::DismissError),
+        _ => map_mode_key_to_message(&model.input_mode, key),
+    }
+}
+
+fn map_mode_key_to_message(input_mode: &InputMode, key: KeyEvent) -> Option<Message> {
+    match input_mode {
+        InputMode::BitManipulation => map_bit_manipulation_key_to_message(key),
+        InputMode::ExpressionInput => map_expression_input_key_to_message(key),
+        InputMode::HistorySelect => None,
+    }
+}
+
+fn map_bit_manipulation_key_to_message(key: KeyEvent) -> Option<Message> {
+    match key.code {
+        KeyCode::Left => Some(Message::ShiftSelectedBit(1)),
+        KeyCode::Right => Some(Message::ShiftSelectedBit(-1)),
+        KeyCode::Up => Some(Message::ShiftSelectedBit(32)),
+        KeyCode::Down => Some(Message::ShiftSelectedBit(-32)),
+        KeyCode::Char(' ') => Some(Message::ToggleSelectedBit),
+        _ => None,
+    }
+}
+
+fn map_expression_input_key_to_message(key: KeyEvent) -> Option<Message> {
+    match key.code {
+        KeyCode::Enter => Some(Message::SubmitExpression),
+        KeyCode::Left => Some(Message::ShiftInputCursor(-1)),
+        KeyCode::Right => Some(Message::ShiftInputCursor(1)),
+        KeyCode::Home => Some(Message::ShiftInputCursor(isize::MIN)),
+        KeyCode::End => Some(Message::ShiftInputCursor(isize::MAX)),
+        KeyCode::Up => Some(Message::NextInputHistory),
+        KeyCode::Down => Some(Message::PrevInputHistory),
+        KeyCode::Backspace => Some(Message::BackspaceInputChar),
+        KeyCode::Delete => Some(Message::DeleteInputChar),
+        KeyCode::Char(c) => Some(Message::InsertInputChar(c)),
+        _ => None,
+    }
+}
+
 fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
     match msg {
-        Message::KeyPressed(key) => match key.code {
-            KeyCode::BackTab => Some(Message::PrevInputMode),
-            KeyCode::Tab => Some(Message::NextInputMode),
-            KeyCode::Char('M') => Some(Message::PrevDisplayMode),
-            KeyCode::Char('m') => Some(Message::NextDisplayMode),
-            KeyCode::Char('c') => Some(Message::ClearInput),
-            KeyCode::Esc => Some(Message::DismissError),
-
-            KeyCode::Left if model.input_mode == InputMode::BitManipulation => {
-                Some(Message::ShiftSelectedBit(1))
-            }
-            KeyCode::Right if model.input_mode == InputMode::BitManipulation => {
-                Some(Message::ShiftSelectedBit(-1))
-            }
-            KeyCode::Up if model.input_mode == InputMode::BitManipulation => {
-                Some(Message::ShiftSelectedBit(32))
-            }
-            KeyCode::Down if model.input_mode == InputMode::BitManipulation => {
-                Some(Message::ShiftSelectedBit(-32))
-            }
-            KeyCode::Char(' ') if model.input_mode == InputMode::BitManipulation => {
-                Some(Message::ToggleSelectedBit)
-            }
-
-            KeyCode::Enter if model.input_mode == InputMode::ExpressionInput => {
-                Some(Message::SubmitExpression)
-            }
-            KeyCode::Left if model.input_mode == InputMode::ExpressionInput => {
-                Some(Message::ShiftInputCursor(-1))
-            }
-            KeyCode::Right if model.input_mode == InputMode::ExpressionInput => {
-                Some(Message::ShiftInputCursor(1))
-            }
-            KeyCode::Home if model.input_mode == InputMode::ExpressionInput => {
-                Some(Message::ShiftInputCursor(isize::MIN))
-            }
-            KeyCode::End if model.input_mode == InputMode::ExpressionInput => {
-                Some(Message::ShiftInputCursor(isize::MAX))
-            }
-            KeyCode::Up if model.input_mode == InputMode::ExpressionInput => {
-                Some(Message::NextInputHistory)
-            }
-            KeyCode::Down if model.input_mode == InputMode::ExpressionInput => {
-                Some(Message::PrevInputHistory)
-            }
-            KeyCode::Backspace if model.input_mode == InputMode::ExpressionInput => {
-                if !model.expression_input_text.is_empty()
-                    && model.expression_input_cursor_index > 0
-                {
-                    model
-                        .expression_input_text
-                        .remove(model.expression_input_cursor_index - 1);
-                    Some(Message::ShiftInputCursor(-1))
-                } else {
-                    None
-                }
-            }
-            KeyCode::Delete if model.input_mode == InputMode::ExpressionInput => {
-                if !model.expression_input_text.is_empty()
-                    && model.expression_input_cursor_index < model.expression_input_text.len()
-                {
-                    model
-                        .expression_input_text
-                        .remove(model.expression_input_cursor_index);
-                }
-                None
-            }
-            KeyCode::Char(c) if model.input_mode == InputMode::ExpressionInput => {
-                model
-                    .expression_input_text
-                    .insert(model.expression_input_cursor_index, c);
-                Some(Message::ShiftInputCursor(1))
-            }
-
-            _ => None,
-        },
-        Message::ClearInput => {
-            model.value = 0;
-            model.error = None;
-            None
-        }
-        Message::SubmitExpression => {
-            match parse_expr(model.value, &model.expression_input_text) {
-                Ok(expression) => {
-                    match compute(
-                        expression.operand1,
-                        expression.operand2,
-                        expression.operator,
-                    ) {
-                        Ok(result) => {
-                            model.value = result;
-                            model.error = None;
-                            model
-                                .expression_input_history
-                                .push(model.expression_input_text.clone());
-                            model.calculation_history.push((
-                                expression.operand1,
-                                expression.operator,
-                                expression.operand2,
-                                result,
-                            ));
-                        }
-                        Err(e) => {
-                            model.error = Some(format!("Computation error: {}", e));
-                        }
-                    }
-                }
-                Err(e) => {
-                    model.error = Some(format!("Parse error: {}", e));
-                }
-            };
-            model.expression_input_cursor_index = 0;
-            model.expression_input_text.clear();
-            model.expression_input_history_index = None;
-            None
-        }
-        Message::ShiftInputCursor(offset) => {
-            model.expression_input_cursor_index = model
-                .expression_input_cursor_index
-                .saturating_add_signed(offset)
-                .clamp(0, model.expression_input_text.len());
-            None
-        }
-        Message::ShiftSelectedBit(offset) => {
-            model.selected_bit_index = model
-                .selected_bit_index
-                .saturating_add_signed(offset)
-                .clamp(0, 63);
-            None
-        }
-        Message::ToggleSelectedBit => {
-            model.value ^= 1_u64 << model.selected_bit_index;
-            model.error = None;
-            None
-        }
-        Message::PrevInputMode => {
-            model.input_mode = model.input_mode.prev();
-            None
-        }
-        Message::NextInputMode => {
-            model.input_mode = model.input_mode.next();
-            None
-        }
-        Message::PrevInputHistory => {
-            match model.expression_input_history_index {
-                Some(0) => {
-                    model.expression_input_text = String::default();
-                    model.expression_input_cursor_index = 0;
-                    model.expression_input_history_index = None;
-                }
-                Some(n) if !model.expression_input_history.is_empty() => {
-                    let index = n
-                        .saturating_sub(1)
-                        .clamp(0, model.expression_input_history.len() - 1);
-                    model.expression_input_text = model
-                        .expression_input_history
-                        .iter()
-                        .rev()
-                        .nth(index)
-                        .unwrap()
-                        .clone();
-                    model.expression_input_cursor_index = model.expression_input_text.len();
-                    model.expression_input_history_index = Some(index);
-                }
-                _ => {}
-            };
-            None
-        }
-        Message::NextInputHistory => {
-            if !model.expression_input_history.is_empty() {
-                let index = match model.expression_input_history_index {
-                    None => 0,
-                    Some(n) => n
-                        .saturating_add(1)
-                        .clamp(0, model.expression_input_history.len() - 1),
-                };
-                model.expression_input_text = model
-                    .expression_input_history
-                    .iter()
-                    .rev()
-                    .nth(index)
-                    .unwrap()
-                    .clone();
-                model.expression_input_cursor_index = model.expression_input_text.len();
-                model.expression_input_history_index = Some(index);
-            }
-            None
-        }
-        Message::PrevDisplayMode => {
-            model.display_mode = model.display_mode.prev();
-            None
-        }
-        Message::NextDisplayMode => {
-            model.display_mode = model.display_mode.next();
-            None
-        }
-        Message::DismissError => {
-            model.error = None;
-            None
-        }
-        Message::Quit => {
-            model.running_state = RunningState::Done;
-            None
-        }
+        Message::KeyPressed(key) => map_key_to_message(model, key),
+        Message::ClearInput => model.clear_input(),
+        Message::SubmitExpression => model.submit_expression(),
+        Message::ShiftInputCursor(offset) => model.shift_input_cursor(offset),
+        Message::InsertInputChar(c) => model.insert_input_char(c),
+        Message::BackspaceInputChar => model.backspace_input_char(),
+        Message::DeleteInputChar => model.delete_input_char(),
+        Message::ShiftSelectedBit(offset) => model.shift_selected_bit(offset),
+        Message::ToggleSelectedBit => model.toggle_selected_bit(),
+        Message::PrevInputMode => model.prev_input_mode(),
+        Message::NextInputMode => model.next_input_mode(),
+        Message::PrevInputHistory => model.prev_input_history(),
+        Message::NextInputHistory => model.next_input_history(),
+        Message::PrevDisplayMode => model.prev_display_mode(),
+        Message::NextDisplayMode => model.next_display_mode(),
+        Message::DismissError => model.dismiss_error(),
+        Message::Quit => model.quit(),
     }
 }
 
