@@ -407,12 +407,7 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
         Err(err) => err.to_string(),
     });
     frame.render_widget(
-        Paragraph::new(val_text)
-            .block(Block::bordered().border_style(match model.input_mode {
-                InputMode::BitManipulation => Style::default().fg(Color::Yellow),
-                _ => Style::default(),
-            }))
-            .centered(),
+        Paragraph::new(val_text).block(Block::bordered()).centered(),
         value_area,
     );
 
