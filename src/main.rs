@@ -1,4 +1,7 @@
-use std::ops::{BitAnd, BitOr, BitXor};
+use std::{
+    ops::{BitAnd, BitOr, BitXor},
+    sync::OnceLock,
+};
 
 use regex::Regex;
 
@@ -24,18 +27,21 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
 }
 
 fn parse_expr(model: &BitTwiddleModel, input: &str) -> Result<(u64, u64, String), String> {
-    let re = Regex::new(concat!(
-        r"^",                                                           // Beginning marker
-        r"\s*", // Match any preceding whitespace
-        r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?", // Capture the first operand
-        r"\s*", // Match any whitespace
-        r"(?<operator>\+|-|\*|\/|<<|>>|\||\&|\^+)", // Capture the operator
-        r"\s*", // Match any whitespace
-        r"(?<operand2>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the second operand
-        r"\s*", // Match any trailing whitespace
-        r"$"    // End marker
-    ))
-    .unwrap();
+    static EXPR_RE: OnceLock<Regex> = OnceLock::new();
+    let re = EXPR_RE.get_or_init(|| {
+        Regex::new(concat!(
+            r"^",                                                           // Beginning marker
+            r"\s*", // Match any preceding whitespace
+            r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?", // Capture the first operand
+            r"\s*",                                                         // Match any whitespace
+            r"(?<operator>\+|-|\*|\/|<<|>>|\||\&|\^+)",                     // Capture the operator
+            r"\s*",                                                         // Match any whitespace
+            r"(?<operand2>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the second operand
+            r"\s*", // Match any trailing whitespace
+            r"$"    // End marker
+        ))
+        .unwrap()
+    });
     let captures = re.captures(input);
     match captures {
         Some(caps) => {
