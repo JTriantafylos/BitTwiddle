@@ -56,20 +56,16 @@ the current calculator value as the first operand:
 
 ## Controls
 
-```text
-Tab / Shift+Tab - Switch between bit manipulation, expression input, and input history
-m / M           - Cycle display mode forward or backward
-c               - Clear the current value
-Esc             - Dismiss an error
-q               - Quit
-```
+- `Tab` / `Shift+Tab`: Switch between bit manipulation, expression input, and input history
+- `m` / `M`: Cycle display mode forward or backward
+- `c`: Clear the current value
+- `Esc`: Dismiss an error
+- `q`: Quit
 
 When editing bits:
 
-```text
-Up / Down / Left / Right - Select bit
-Space                    - Toggle selected bit
-```
+- `Up` / `Down` / `Left` / `Right`: Select bit
+- `Space`: Toggle selected bit
 
 ## Usage Notes
 
