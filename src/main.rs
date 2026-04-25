@@ -71,12 +71,20 @@ fn compute(operand1: u64, operand2: u64, operator: &str) -> Result<u64, String> 
         "/" => operand1
             .checked_div(operand2)
             .ok_or("Division by zero".into()),
-        "<<" => operand1
-            .checked_shl(operand2 as u32)
-            .ok_or(format!("Invalid left-shift: {}", operand2)),
-        ">>" => operand1
-            .checked_shr(operand2 as u32)
-            .ok_or(format!("Invalid right-shift: {}", operand2)),
+        "<<" => {
+            if operand2 >= u64::BITS.into() {
+                Err(format!("Invalid left-shift: {}", operand2))
+            } else {
+                Ok(operand1 << operand2 as u32)
+            }
+        }
+        ">>" => {
+            if operand2 >= u64::BITS.into() {
+                Err(format!("Invalid right-shift: {}", operand2))
+            } else {
+                Ok(operand1 >> operand2 as u32)
+            }
+        }
         "|" => Ok(operand1.bitor(operand2)),
         "&" => Ok(operand1.bitand(operand2)),
         "^" => Ok(operand1.bitxor(operand2)),
