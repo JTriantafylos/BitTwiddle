@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
     crossterm::event::{self, Event, KeyCode, KeyEvent},
     layout::{Constraint, Layout, Position},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, List, ListItem, Paragraph},
 };
@@ -145,6 +145,7 @@ struct BitTwiddleModel {
     expression_input_history: Vec<String>,
     expression_input_history_index: Option<usize>,
     calculation_history: Vec<(u64, String, u64, u64)>,
+    selected_bit_index: usize,
 }
 
 impl Default for BitTwiddleModel {
@@ -159,6 +160,7 @@ impl Default for BitTwiddleModel {
             expression_input_history: Vec::default(),
             expression_input_history_index: None,
             calculation_history: Vec::default(),
+            selected_bit_index: Default::default(),
         }
     }
 }
@@ -168,6 +170,8 @@ enum Message {
     ClearInput,
     SubmitExpression,
     ShiftInputCursor(isize),
+    ShiftSelectedBit(isize),
+    ToggleSelectedBit,
     PrevInputMode,
     NextInputMode,
     PrevInputHistory,
@@ -185,6 +189,22 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             KeyCode::Char('M') => Some(Message::PrevDisplayMode),
             KeyCode::Char('m') => Some(Message::NextDisplayMode),
             KeyCode::Char('c') => Some(Message::ClearInput),
+
+            KeyCode::Left if model.input_mode == InputMode::BitManipulation => {
+                Some(Message::ShiftSelectedBit(1))
+            }
+            KeyCode::Right if model.input_mode == InputMode::BitManipulation => {
+                Some(Message::ShiftSelectedBit(-1))
+            }
+            KeyCode::Up if model.input_mode == InputMode::BitManipulation => {
+                Some(Message::ShiftSelectedBit(32))
+            }
+            KeyCode::Down if model.input_mode == InputMode::BitManipulation => {
+                Some(Message::ShiftSelectedBit(-32))
+            }
+            KeyCode::Char(' ') if model.input_mode == InputMode::BitManipulation => {
+                Some(Message::ToggleSelectedBit)
+            }
 
             KeyCode::Enter if model.input_mode == InputMode::ExpressionInput => {
                 Some(Message::SubmitExpression)
@@ -272,6 +292,19 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
                 .clamp(0, model.expression_input_text.len());
             None
         }
+        Message::ShiftSelectedBit(offset) => {
+            model.selected_bit_index = model
+                .selected_bit_index
+                .saturating_add_signed(offset)
+                .clamp(0, 63);
+            None
+        }
+        Message::ToggleSelectedBit => {
+            if let Ok(val) = &mut model.val {
+                *val ^= 1_u64 << model.selected_bit_index;
+            }
+            None
+        }
         Message::PrevInputMode => {
             model.input_mode = model.input_mode.prev();
             None
@@ -348,7 +381,13 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
         Constraint::Min(1),
         Constraint::Length(1),
     ]);
-    let [value_areas, bit_area, input_area, expression_history_area, help_area] = vertical.areas(frame.area());
+    let [
+        value_areas,
+        bit_area,
+        input_area,
+        expression_history_area,
+        help_area,
+    ] = vertical.areas(frame.area());
 
     let [value_area, mode_area] =
         Layout::horizontal([Constraint::Min(1), Constraint::Length(5)]).areas(value_areas);
@@ -362,10 +401,12 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
         Err(err) => err.to_string(),
     });
     frame.render_widget(
-        Paragraph::new(val_text).block(Block::bordered().border_style(match model.input_mode {
-            InputMode::BitManipulation => Style::default().fg(Color::Yellow),
-            _ => Style::default(),
-        })).centered(),
+        Paragraph::new(val_text)
+            .block(Block::bordered().border_style(match model.input_mode {
+                InputMode::BitManipulation => Style::default().fg(Color::Yellow),
+                _ => Style::default(),
+            }))
+            .centered(),
         value_area,
     );
 
@@ -420,7 +461,12 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     const BITS_PER_LINE: usize = 32;
     const BITS_PER_WORD: usize = 16;
     const BITS_PER_NIBBLE: usize = 4;
-    let display_value = model.val.as_ref().unwrap_or(&0);
+    let display_value = *model.val.as_ref().unwrap_or(&0);
+    let bit_manipulation_mode = model.input_mode == InputMode::BitManipulation;
+    let selected_bit_index = model.selected_bit_index;
+    let selected_bit_style = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::REVERSED);
     let bit_visualization_text = (0..2)
         .rev()
         .map(|line_num| {
@@ -436,48 +482,54 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
                                 Style::default().bold(),
                             ),
                             Span::raw("  "),
-                            Span::raw(
-                                (0..4)
-                                    .rev()
-                                    .map(|nibble_num| {
-                                        (0..4)
-                                            .rev()
-                                            .map(|nibble_index| {
-                                                if (display_value
-                                                    >> (((line_num * BITS_PER_LINE)
-                                                        + (word_num * BITS_PER_WORD)
-                                                        + (nibble_num * BITS_PER_NIBBLE))
-                                                        + nibble_index))
-                                                    & 1
-                                                    == 1
-                                                {
-                                                    "1"
-                                                } else {
-                                                    "0"
-                                                }
-                                            })
-                                            .collect::<Vec<&str>>()
-                                            .join(" ")
-                                    })
-                                    .collect::<Vec<String>>()
-                                    .join("  "),
-                            ),
-                            Span::raw("  "),
                         ]
+                        .into_iter()
+                        .chain((0..4).rev().flat_map(move |nibble_num| {
+                            (0..4)
+                                .rev()
+                                .flat_map(move |nibble_index| {
+                                    let bit_index = (line_num * BITS_PER_LINE)
+                                        + (word_num * BITS_PER_WORD)
+                                        + (nibble_num * BITS_PER_NIBBLE)
+                                        + nibble_index;
+                                    let bit = if (display_value >> bit_index) & 1 == 1 {
+                                        "1"
+                                    } else {
+                                        "0"
+                                    };
+                                    let bit_style = if bit_manipulation_mode
+                                        && bit_index == selected_bit_index
+                                    {
+                                        selected_bit_style
+                                    } else {
+                                        Style::default()
+                                    };
+                                    let separator = if nibble_index == 0 {
+                                        if nibble_num == 0 { "" } else { "  " }
+                                    } else {
+                                        " "
+                                    };
+                                    [Span::styled(bit, bit_style), Span::raw(separator)]
+                                })
+                                .collect::<Vec<Span>>()
+                        }))
+                        .chain([Span::raw("  ")])
                     })
                     .collect::<Vec<Span>>(),
             )
         })
         .collect::<Vec<Line>>();
 
-    let bit_visualization = Paragraph::new(bit_visualization_text).block(
-        Block::bordered()
-            .border_style(match model.input_mode {
-                InputMode::BitManipulation => Style::default().fg(Color::Yellow),
-                _ => Style::default(),
-            })
-            .title("Bits"),
-    ).centered();
+    let bit_visualization = Paragraph::new(bit_visualization_text)
+        .block(
+            Block::bordered()
+                .border_style(match model.input_mode {
+                    InputMode::BitManipulation => Style::default().fg(Color::Yellow),
+                    _ => Style::default(),
+                })
+                .title("Bits"),
+        )
+        .centered();
     frame.render_widget(bit_visualization, bit_area);
 
     let expression_history =
@@ -508,11 +560,16 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
         );
     frame.render_widget(expression_history, expression_history_area);
 
-    let help_text = Line::from(vec![
-        "[c] Clear",
-        "[m] Cycle display mode (forward)",
-        "[M] Cycle display mode (backward)",
-    ].join(" "));
+    let help_text = Line::from(
+        vec![
+            "[c] Clear",
+            "[m] Cycle display mode (forward)",
+            "[M] Cycle display mode (backward)",
+            "[arrows] Select bit",
+            "[space] Toggle bit",
+        ]
+        .join(" "),
+    );
     frame.render_widget(Paragraph::new(help_text).centered(), help_area);
 }
 
