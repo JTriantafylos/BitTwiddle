@@ -244,15 +244,19 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
         })
         .collect::<Vec<Line>>();
 
+    let mut bit_visualization_block = Block::bordered()
+        .border_style(match model.input_mode {
+            InputMode::BitManipulation => Style::default().fg(Color::Yellow),
+            _ => Style::default(),
+        })
+        .title("Bits");
+    if bit_manipulation_mode {
+        bit_visualization_block =
+            bit_visualization_block.title_bottom(format!(" Bit {} ", selected_bit_index));
+    }
+
     let bit_visualization = Paragraph::new(bit_visualization_text)
-        .block(
-            Block::bordered()
-                .border_style(match model.input_mode {
-                    InputMode::BitManipulation => Style::default().fg(Color::Yellow),
-                    _ => Style::default(),
-                })
-                .title("Bits"),
-        )
+        .block(bit_visualization_block)
         .centered();
     frame.render_widget(bit_visualization, bit_area);
 
