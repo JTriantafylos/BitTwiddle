@@ -32,6 +32,12 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
     }
 }
 
+/// Parses an arithmetic or bitwise expression into `(operand1, operand2, operator)`.
+///
+/// Operands are unsigned integer literals accepted by [`parse_unsigned`]. When the
+/// left operand is omitted, the current model value is used as `operand1`.
+/// Returns an error for malformed expressions or operands that cannot fit in a
+/// `u64`.
 fn parse_expr(model: &BitTwiddleModel, input: &str) -> Result<(u64, u64, String), String> {
     static EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = EXPR_RE.get_or_init(|| {
@@ -639,6 +645,13 @@ mod tests {
     use super::*;
     use std::num::IntErrorKind;
 
+    fn model_with_value(value: u64) -> BitTwiddleModel {
+        BitTwiddleModel {
+            value,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn parse_unsigned_accepts_decimal_literals() {
         assert_eq!(parse_unsigned("0"), Ok(0));
@@ -731,6 +744,89 @@ mod tests {
                 .unwrap_err()
                 .kind(),
             IntErrorKind::PosOverflow
+        );
+    }
+
+    #[test]
+    fn parse_expr_accepts_explicit_operands_for_all_operators() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(parse_expr(&model, "1 + 2"), Ok((1, 2, "+".into())));
+        assert_eq!(parse_expr(&model, "3 - 4"), Ok((3, 4, "-".into())));
+        assert_eq!(parse_expr(&model, "5 * 6"), Ok((5, 6, "*".into())));
+        assert_eq!(parse_expr(&model, "7 / 8"), Ok((7, 8, "/".into())));
+        assert_eq!(parse_expr(&model, "9 << 10"), Ok((9, 10, "<<".into())));
+        assert_eq!(parse_expr(&model, "11 >> 12"), Ok((11, 12, ">>".into())));
+        assert_eq!(parse_expr(&model, "13 | 14"), Ok((13, 14, "|".into())));
+        assert_eq!(parse_expr(&model, "15 & 16"), Ok((15, 16, "&".into())));
+        assert_eq!(parse_expr(&model, "17 ^ 18"), Ok((17, 18, "^".into())));
+    }
+
+    #[test]
+    fn parse_expr_accepts_supported_literal_bases() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(parse_expr(&model, "0xff + 0X10"), Ok((255, 16, "+".into())));
+        assert_eq!(parse_expr(&model, "0o17 + 0O10"), Ok((15, 8, "+".into())));
+        assert_eq!(parse_expr(&model, "0b1010 + 0B11"), Ok((10, 3, "+".into())));
+    }
+
+    #[test]
+    fn parse_expr_accepts_surrounding_whitespace() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            parse_expr(&model, " \t 12 \n + \r 34 \t "),
+            Ok((12, 34, "+".into()))
+        );
+    }
+
+    #[test]
+    fn parse_expr_uses_model_value_when_left_operand_is_omitted() {
+        let model = model_with_value(42);
+
+        assert_eq!(parse_expr(&model, "+ 5"), Ok((42, 5, "+".into())));
+        assert_eq!(parse_expr(&model, "<< 2"), Ok((42, 2, "<<".into())));
+        assert_eq!(parse_expr(&model, " & 0xff"), Ok((42, 255, "&".into())));
+    }
+
+    #[test]
+    fn parse_expr_rejects_malformed_expressions() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            parse_expr(&model, "").unwrap_err(),
+            "Malformed expression ''"
+        );
+        assert_eq!(
+            parse_expr(&model, "1 +").unwrap_err(),
+            "Malformed expression '1 +'"
+        );
+        assert_eq!(
+            parse_expr(&model, "1 2 + 3").unwrap_err(),
+            "Malformed expression '1 2 + 3'"
+        );
+        assert_eq!(
+            parse_expr(&model, "1 % 2").unwrap_err(),
+            "Malformed expression '1 % 2'"
+        );
+        assert_eq!(
+            parse_expr(&model, "0xg + 1").unwrap_err(),
+            "Malformed expression '0xg + 1'"
+        );
+    }
+
+    #[test]
+    fn parse_expr_reports_operand_overflow() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            parse_expr(&model, "18446744073709551616 + 1").unwrap_err(),
+            "Error parsing operand 1 - number too large to fit in target type"
+        );
+        assert_eq!(
+            parse_expr(&model, "1 + 18446744073709551616").unwrap_err(),
+            "Error parsing operand 2 - number too large to fit in target type"
         );
     }
 }
