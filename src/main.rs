@@ -1,10 +1,3 @@
-use std::{
-    ops::{BitAnd, BitOr, BitXor},
-    sync::OnceLock,
-};
-
-use regex::Regex;
-
 use ratatui::{
     Frame,
     crossterm::event::{self, Event, KeyCode, KeyEvent},
@@ -14,98 +7,9 @@ use ratatui::{
     widgets::{Block, List, ListItem, Paragraph},
 };
 
-/// Parses an unsigned integer literal into a `u64`.
-///
-/// Decimal literals are accepted by default. Prefixes select other bases:
-/// `0x`/`0X` for hexadecimal, `0o`/`0O` for octal, and `0b`/`0B` for binary.
-/// Returns the underlying integer parse error for empty, invalid, or overflowing
-/// literals.
-fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
-    if let Some(rest) = s.to_lowercase().strip_prefix("0x") {
-        u64::from_str_radix(rest, 16)
-    } else if let Some(rest) = s.to_lowercase().strip_prefix("0o") {
-        u64::from_str_radix(rest, 8)
-    } else if let Some(rest) = s.to_lowercase().strip_prefix("0b") {
-        u64::from_str_radix(rest, 2)
-    } else {
-        u64::from_str_radix(s, 10)
-    }
-}
+mod expression;
 
-/// Parses an arithmetic or bitwise expression into `(operand1, operand2, operator)`.
-///
-/// Operands are unsigned integer literals accepted by [`parse_unsigned`]. When the
-/// left operand is omitted, the current model value is used as `operand1`.
-/// Returns an error for malformed expressions or operands that cannot fit in a
-/// `u64`.
-fn parse_expr(model: &BitTwiddleModel, input: &str) -> Result<(u64, u64, String), String> {
-    static EXPR_RE: OnceLock<Regex> = OnceLock::new();
-    let re = EXPR_RE.get_or_init(|| {
-        Regex::new(concat!(
-            r"^",                                                           // Beginning marker
-            r"\s*", // Match any preceding whitespace
-            r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?", // Capture the first operand
-            r"\s*",                                                         // Match any whitespace
-            r"(?<operator>\+|-|\*|\/|<<|>>|\||\&|\^+)",                     // Capture the operator
-            r"\s*",                                                         // Match any whitespace
-            r"(?<operand2>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the second operand
-            r"\s*", // Match any trailing whitespace
-            r"$"    // End marker
-        ))
-        .unwrap()
-    });
-    let captures = re.captures(input);
-    match captures {
-        Some(caps) => {
-            let operand1_match = caps.name("operand1");
-            let operand1: u64 = match operand1_match {
-                Some(s) => parse_unsigned(s.as_str())
-                    .map_err(|e| format!("Error parsing operand 1 - {}", e))?,
-                None => model.value,
-            };
-            let operand2: u64 = parse_unsigned(&caps["operand2"])
-                .map_err(|e| format!("Error parsing operand 2 - {}", e))?;
-            let operator = String::from(&caps["operator"]);
-            Ok((operand1, operand2, operator))
-        }
-        None => Err(format!("Malformed expression '{}'", input)),
-    }
-}
-
-/// Applies a supported arithmetic, bitwise, or shift operator to two `u64` operands.
-///
-/// Addition, subtraction, and multiplication use `u64` wrapping semantics. Division
-/// returns an error when the divisor is zero. Left and right shifts return an error
-/// when the shift amount is 64 bits or greater. Unsupported operators are reported
-/// as errors instead of being ignored.
-fn compute(operand1: u64, operand2: u64, operator: &str) -> Result<u64, String> {
-    match operator {
-        "+" => Ok(operand1.wrapping_add(operand2)),
-        "-" => Ok(operand1.wrapping_sub(operand2)),
-        "*" => Ok(operand1.wrapping_mul(operand2)),
-        "/" => operand1
-            .checked_div(operand2)
-            .ok_or("Division by zero".into()),
-        "<<" => {
-            if operand2 >= u64::BITS.into() {
-                Err(format!("Invalid left-shift: {}", operand2))
-            } else {
-                Ok(operand1 << operand2 as u32)
-            }
-        }
-        ">>" => {
-            if operand2 >= u64::BITS.into() {
-                Err(format!("Invalid right-shift: {}", operand2))
-            } else {
-                Ok(operand1 >> operand2 as u32)
-            }
-        }
-        "|" => Ok(operand1.bitor(operand2)),
-        "&" => Ok(operand1.bitand(operand2)),
-        "^" => Ok(operand1.bitxor(operand2)),
-        _ => Err(format!("Unsupported operator: {}", operator)),
-    }
-}
+use expression::{Operator, compute, parse_expr};
 
 #[derive(Default, PartialEq, Eq)]
 enum RunningState {
@@ -174,7 +78,7 @@ struct BitTwiddleModel {
     expression_input_cursor_index: usize,
     expression_input_history: Vec<String>,
     expression_input_history_index: Option<usize>,
-    calculation_history: Vec<(u64, String, u64, u64)>,
+    calculation_history: Vec<(u64, Operator, u64, u64)>,
     selected_bit_index: usize,
 }
 
@@ -297,18 +201,25 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             None
         }
         Message::SubmitExpression => {
-            match parse_expr(model, &model.expression_input_text) {
-                Ok((operand1, operand2, operator)) => {
-                    match compute(operand1, operand2, &operator) {
+            match parse_expr(model.value, &model.expression_input_text) {
+                Ok(expression) => {
+                    match compute(
+                        expression.operand1,
+                        expression.operand2,
+                        expression.operator,
+                    ) {
                         Ok(result) => {
                             model.value = result;
                             model.error = None;
                             model
                                 .expression_input_history
                                 .push(model.expression_input_text.clone());
-                            model
-                                .calculation_history
-                                .push((operand1, operator, operand2, result));
+                            model.calculation_history.push((
+                                expression.operand1,
+                                expression.operator,
+                                expression.operand2,
+                                result,
+                            ));
                         }
                         Err(e) => {
                             model.error = Some(format!("Computation error: {}", e));
@@ -644,245 +555,4 @@ fn main() -> Result<(), std::io::Error> {
 
     ratatui::restore();
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::num::IntErrorKind;
-
-    fn model_with_value(value: u64) -> BitTwiddleModel {
-        BitTwiddleModel {
-            value,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn parse_unsigned_accepts_decimal_literals() {
-        assert_eq!(parse_unsigned("0"), Ok(0));
-        assert_eq!(parse_unsigned("42"), Ok(42));
-        assert_eq!(parse_unsigned("18446744073709551615"), Ok(u64::MAX));
-    }
-
-    #[test]
-    fn parse_unsigned_accepts_hex_literals() {
-        assert_eq!(parse_unsigned("0x0"), Ok(0));
-        assert_eq!(parse_unsigned("0xff"), Ok(255));
-        assert_eq!(parse_unsigned("0XFF"), Ok(255));
-        assert_eq!(parse_unsigned("0xffffffffffffffff"), Ok(u64::MAX));
-    }
-
-    #[test]
-    fn parse_unsigned_accepts_octal_literals() {
-        assert_eq!(parse_unsigned("0o0"), Ok(0));
-        assert_eq!(parse_unsigned("0o17"), Ok(15));
-        assert_eq!(parse_unsigned("0O17"), Ok(15));
-        assert_eq!(parse_unsigned("0o1777777777777777777777"), Ok(u64::MAX));
-    }
-
-    #[test]
-    fn parse_unsigned_accepts_binary_literals() {
-        assert_eq!(parse_unsigned("0b0"), Ok(0));
-        assert_eq!(parse_unsigned("0b1010"), Ok(10));
-        assert_eq!(parse_unsigned("0B1010"), Ok(10));
-        assert_eq!(
-            parse_unsigned("0b1111111111111111111111111111111111111111111111111111111111111111"),
-            Ok(u64::MAX)
-        );
-    }
-
-    #[test]
-    fn parse_unsigned_rejects_invalid_digits_for_base() {
-        assert_eq!(
-            *parse_unsigned("0xg").unwrap_err().kind(),
-            IntErrorKind::InvalidDigit
-        );
-        assert_eq!(
-            *parse_unsigned("0o8").unwrap_err().kind(),
-            IntErrorKind::InvalidDigit
-        );
-        assert_eq!(
-            *parse_unsigned("0b2").unwrap_err().kind(),
-            IntErrorKind::InvalidDigit
-        );
-        assert_eq!(
-            *parse_unsigned("12x").unwrap_err().kind(),
-            IntErrorKind::InvalidDigit
-        );
-    }
-
-    #[test]
-    fn parse_unsigned_rejects_empty_or_prefix_only_input() {
-        assert_eq!(*parse_unsigned("").unwrap_err().kind(), IntErrorKind::Empty);
-        assert_eq!(
-            *parse_unsigned("0x").unwrap_err().kind(),
-            IntErrorKind::Empty
-        );
-        assert_eq!(
-            *parse_unsigned("0o").unwrap_err().kind(),
-            IntErrorKind::Empty
-        );
-        assert_eq!(
-            *parse_unsigned("0b").unwrap_err().kind(),
-            IntErrorKind::Empty
-        );
-    }
-
-    #[test]
-    fn parse_unsigned_rejects_overflow() {
-        assert_eq!(
-            *parse_unsigned("18446744073709551616").unwrap_err().kind(),
-            IntErrorKind::PosOverflow
-        );
-        assert_eq!(
-            *parse_unsigned("0x10000000000000000").unwrap_err().kind(),
-            IntErrorKind::PosOverflow
-        );
-        assert_eq!(
-            *parse_unsigned("0o2000000000000000000000")
-                .unwrap_err()
-                .kind(),
-            IntErrorKind::PosOverflow
-        );
-        assert_eq!(
-            *parse_unsigned("0b10000000000000000000000000000000000000000000000000000000000000000")
-                .unwrap_err()
-                .kind(),
-            IntErrorKind::PosOverflow
-        );
-    }
-
-    #[test]
-    fn parse_expr_accepts_explicit_operands_for_all_operators() {
-        let model = BitTwiddleModel::default();
-
-        assert_eq!(parse_expr(&model, "1 + 2"), Ok((1, 2, "+".into())));
-        assert_eq!(parse_expr(&model, "3 - 4"), Ok((3, 4, "-".into())));
-        assert_eq!(parse_expr(&model, "5 * 6"), Ok((5, 6, "*".into())));
-        assert_eq!(parse_expr(&model, "7 / 8"), Ok((7, 8, "/".into())));
-        assert_eq!(parse_expr(&model, "9 << 10"), Ok((9, 10, "<<".into())));
-        assert_eq!(parse_expr(&model, "11 >> 12"), Ok((11, 12, ">>".into())));
-        assert_eq!(parse_expr(&model, "13 | 14"), Ok((13, 14, "|".into())));
-        assert_eq!(parse_expr(&model, "15 & 16"), Ok((15, 16, "&".into())));
-        assert_eq!(parse_expr(&model, "17 ^ 18"), Ok((17, 18, "^".into())));
-    }
-
-    #[test]
-    fn parse_expr_accepts_supported_literal_bases() {
-        let model = BitTwiddleModel::default();
-
-        assert_eq!(parse_expr(&model, "0xff + 0X10"), Ok((255, 16, "+".into())));
-        assert_eq!(parse_expr(&model, "0o17 + 0O10"), Ok((15, 8, "+".into())));
-        assert_eq!(parse_expr(&model, "0b1010 + 0B11"), Ok((10, 3, "+".into())));
-    }
-
-    #[test]
-    fn parse_expr_accepts_surrounding_whitespace() {
-        let model = BitTwiddleModel::default();
-
-        assert_eq!(
-            parse_expr(&model, " \t 12 \n + \r 34 \t "),
-            Ok((12, 34, "+".into()))
-        );
-    }
-
-    #[test]
-    fn parse_expr_uses_model_value_when_left_operand_is_omitted() {
-        let model = model_with_value(42);
-
-        assert_eq!(parse_expr(&model, "+ 5"), Ok((42, 5, "+".into())));
-        assert_eq!(parse_expr(&model, "<< 2"), Ok((42, 2, "<<".into())));
-        assert_eq!(parse_expr(&model, " & 0xff"), Ok((42, 255, "&".into())));
-    }
-
-    #[test]
-    fn parse_expr_rejects_malformed_expressions() {
-        let model = BitTwiddleModel::default();
-
-        assert_eq!(
-            parse_expr(&model, "").unwrap_err(),
-            "Malformed expression ''"
-        );
-        assert_eq!(
-            parse_expr(&model, "1 +").unwrap_err(),
-            "Malformed expression '1 +'"
-        );
-        assert_eq!(
-            parse_expr(&model, "1 2 + 3").unwrap_err(),
-            "Malformed expression '1 2 + 3'"
-        );
-        assert_eq!(
-            parse_expr(&model, "1 % 2").unwrap_err(),
-            "Malformed expression '1 % 2'"
-        );
-        assert_eq!(
-            parse_expr(&model, "0xg + 1").unwrap_err(),
-            "Malformed expression '0xg + 1'"
-        );
-    }
-
-    #[test]
-    fn parse_expr_reports_operand_overflow() {
-        let model = BitTwiddleModel::default();
-
-        assert_eq!(
-            parse_expr(&model, "18446744073709551616 + 1").unwrap_err(),
-            "Error parsing operand 1 - number too large to fit in target type"
-        );
-        assert_eq!(
-            parse_expr(&model, "1 + 18446744073709551616").unwrap_err(),
-            "Error parsing operand 2 - number too large to fit in target type"
-        );
-    }
-
-    #[test]
-    fn compute_adds_subtracts_and_multiplies_with_wrapping_semantics() {
-        assert_eq!(compute(40, 2, "+"), Ok(42));
-        assert_eq!(compute(u64::MAX, 1, "+"), Ok(0));
-        assert_eq!(compute(u64::MAX - 1, 3, "+"), Ok(1));
-
-        assert_eq!(compute(45, 3, "-"), Ok(42));
-        assert_eq!(compute(0, 1, "-"), Ok(u64::MAX));
-        assert_eq!(compute(1, 3, "-"), Ok(u64::MAX - 1));
-
-        assert_eq!(compute(6, 7, "*"), Ok(42));
-        assert_eq!(compute(1_u64 << 63, 2, "*"), Ok(0));
-        assert_eq!(compute(u64::MAX, 2, "*"), Ok(u64::MAX - 1));
-    }
-
-    #[test]
-    fn compute_divides_and_rejects_division_by_zero() {
-        assert_eq!(compute(84, 2, "/"), Ok(42));
-        assert_eq!(compute(7, 0, "/").unwrap_err(), "Division by zero");
-    }
-
-    #[test]
-    fn compute_shifts_and_rejects_shift_amounts_of_64_or_more() {
-        assert_eq!(compute(1, 63, "<<"), Ok(1_u64 << 63));
-        assert_eq!(compute(0x8000_0000_0000_0000, 63, ">>"), Ok(1));
-
-        assert_eq!(compute(1, 64, "<<").unwrap_err(), "Invalid left-shift: 64");
-        assert_eq!(compute(1, 64, ">>").unwrap_err(), "Invalid right-shift: 64");
-        assert_eq!(
-            compute(1, u64::MAX, "<<").unwrap_err(),
-            format!("Invalid left-shift: {}", u64::MAX)
-        );
-        assert_eq!(
-            compute(1, u64::MAX, ">>").unwrap_err(),
-            format!("Invalid right-shift: {}", u64::MAX)
-        );
-    }
-
-    #[test]
-    fn compute_applies_bitwise_operators() {
-        assert_eq!(compute(0b1010, 0b1100, "|"), Ok(0b1110));
-        assert_eq!(compute(0b1010, 0b1100, "&"), Ok(0b1000));
-        assert_eq!(compute(0b1010, 0b1100, "^"), Ok(0b0110));
-    }
-
-    #[test]
-    fn compute_rejects_unsupported_operators() {
-        assert_eq!(compute(1, 2, "%").unwrap_err(), "Unsupported operator: %");
-    }
 }
