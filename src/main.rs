@@ -605,21 +605,25 @@ fn handle_event() -> Result<Option<Message>, std::io::Error> {
 
 fn main() -> Result<(), std::io::Error> {
     let mut terminal = ratatui::init();
-    let mut model: BitTwiddleModel = BitTwiddleModel::default();
+    let result = (|| {
+        let mut model: BitTwiddleModel = BitTwiddleModel::default();
 
-    while model.running_state != RunningState::Done {
-        // Render the current view
-        terminal.draw(|f| view(&mut model, f))?;
+        while model.running_state != RunningState::Done {
+            // Render the current view
+            terminal.draw(|f| view(&mut model, f))?;
 
-        // Handle events and map to a Message
-        let mut current_msg = handle_event()?;
+            // Handle events and map to a Message
+            let mut current_msg = handle_event()?;
 
-        // Process updates as long as they return a non-None message
-        while current_msg.is_some() {
-            current_msg = update(&mut model, current_msg.unwrap());
+            // Process updates as long as they return a non-None message
+            while current_msg.is_some() {
+                current_msg = update(&mut model, current_msg.unwrap());
+            }
         }
-    }
+
+        Ok(())
+    })();
 
     ratatui::restore();
-    Ok(())
+    result
 }
