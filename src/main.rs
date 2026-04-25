@@ -326,7 +326,7 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
     }
 }
 
-fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
+fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     let vertical = Layout::vertical([
         Constraint::Length(3),
         Constraint::Length(4),
@@ -539,7 +539,7 @@ fn main() -> Result<(), std::io::Error> {
 
         while model.running_state != RunningState::Done {
             // Render the current view
-            terminal.draw(|f| view(&mut model, f))?;
+            terminal.draw(|f| view(&model, f))?;
 
             // Handle events and map to a Message
             let mut current_msg = handle_event()?;
