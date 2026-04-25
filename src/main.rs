@@ -72,6 +72,12 @@ fn parse_expr(model: &BitTwiddleModel, input: &str) -> Result<(u64, u64, String)
     }
 }
 
+/// Applies a supported arithmetic, bitwise, or shift operator to two `u64` operands.
+///
+/// Addition, subtraction, and multiplication use `u64` wrapping semantics. Division
+/// returns an error when the divisor is zero. Left and right shifts return an error
+/// when the shift amount is 64 bits or greater. Unsupported operators are reported
+/// as errors instead of being ignored.
 fn compute(operand1: u64, operand2: u64, operator: &str) -> Result<u64, String> {
     match operator {
         "+" => Ok(operand1.wrapping_add(operand2)),
@@ -828,5 +834,55 @@ mod tests {
             parse_expr(&model, "1 + 18446744073709551616").unwrap_err(),
             "Error parsing operand 2 - number too large to fit in target type"
         );
+    }
+
+    #[test]
+    fn compute_adds_subtracts_and_multiplies_with_wrapping_semantics() {
+        assert_eq!(compute(40, 2, "+"), Ok(42));
+        assert_eq!(compute(u64::MAX, 1, "+"), Ok(0));
+        assert_eq!(compute(u64::MAX - 1, 3, "+"), Ok(1));
+
+        assert_eq!(compute(45, 3, "-"), Ok(42));
+        assert_eq!(compute(0, 1, "-"), Ok(u64::MAX));
+        assert_eq!(compute(1, 3, "-"), Ok(u64::MAX - 1));
+
+        assert_eq!(compute(6, 7, "*"), Ok(42));
+        assert_eq!(compute(1_u64 << 63, 2, "*"), Ok(0));
+        assert_eq!(compute(u64::MAX, 2, "*"), Ok(u64::MAX - 1));
+    }
+
+    #[test]
+    fn compute_divides_and_rejects_division_by_zero() {
+        assert_eq!(compute(84, 2, "/"), Ok(42));
+        assert_eq!(compute(7, 0, "/").unwrap_err(), "Division by zero");
+    }
+
+    #[test]
+    fn compute_shifts_and_rejects_shift_amounts_of_64_or_more() {
+        assert_eq!(compute(1, 63, "<<"), Ok(1_u64 << 63));
+        assert_eq!(compute(0x8000_0000_0000_0000, 63, ">>"), Ok(1));
+
+        assert_eq!(compute(1, 64, "<<").unwrap_err(), "Invalid left-shift: 64");
+        assert_eq!(compute(1, 64, ">>").unwrap_err(), "Invalid right-shift: 64");
+        assert_eq!(
+            compute(1, u64::MAX, "<<").unwrap_err(),
+            format!("Invalid left-shift: {}", u64::MAX)
+        );
+        assert_eq!(
+            compute(1, u64::MAX, ">>").unwrap_err(),
+            format!("Invalid right-shift: {}", u64::MAX)
+        );
+    }
+
+    #[test]
+    fn compute_applies_bitwise_operators() {
+        assert_eq!(compute(0b1010, 0b1100, "|"), Ok(0b1110));
+        assert_eq!(compute(0b1010, 0b1100, "&"), Ok(0b1000));
+        assert_eq!(compute(0b1010, 0b1100, "^"), Ok(0b0110));
+    }
+
+    #[test]
+    fn compute_rejects_unsupported_operators() {
+        assert_eq!(compute(1, 2, "%").unwrap_err(), "Unsupported operator: %");
     }
 }
