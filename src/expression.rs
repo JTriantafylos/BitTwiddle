@@ -312,6 +312,32 @@ mod tests {
     }
 
     #[test]
+    fn parse_expr_accepts_compact_syntax() {
+        assert_eq!(parse_expr(0, "1+2"), Ok(parsed(1, 2, Operator::Add)));
+        assert_eq!(parse_expr(0, "3<<4"), Ok(parsed(3, 4, Operator::ShiftLeft)));
+        assert_eq!(
+            parse_expr(42, "<<2"),
+            Ok(parsed(42, 2, Operator::ShiftLeft))
+        );
+    }
+
+    #[test]
+    fn parse_expr_accepts_extra_whitespace_between_tokens() {
+        assert_eq!(
+            parse_expr(0, "2     +   2"),
+            Ok(parsed(2, 2, Operator::Add))
+        );
+        assert_eq!(
+            parse_expr(0, "8     >>      1"),
+            Ok(parsed(8, 1, Operator::ShiftRight))
+        );
+        assert_eq!(
+            parse_expr(42, "     &      0xff"),
+            Ok(parsed(42, 255, Operator::BitAnd))
+        );
+    }
+
+    #[test]
     fn parse_expr_uses_current_value_when_left_operand_is_omitted() {
         assert_eq!(parse_expr(42, "+ 5"), Ok(parsed(42, 5, Operator::Add)));
         assert_eq!(
