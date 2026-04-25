@@ -62,6 +62,7 @@ impl InputMode {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct BitTwiddleModel {
     pub(crate) running_state: RunningState,
     pub(crate) value: u64,
@@ -74,24 +75,6 @@ pub(crate) struct BitTwiddleModel {
     pub(crate) expression_input_history_index: Option<usize>,
     pub(crate) calculation_history: Vec<(u64, Operator, u64, u64)>,
     pub(crate) selected_bit_index: usize,
-}
-
-impl Default for BitTwiddleModel {
-    fn default() -> Self {
-        Self {
-            running_state: Default::default(),
-            value: 0,
-            error: None,
-            display_mode: Default::default(),
-            input_mode: Default::default(),
-            expression_input_text: Default::default(),
-            expression_input_cursor_index: Default::default(),
-            expression_input_history: Vec::default(),
-            expression_input_history_index: None,
-            calculation_history: Vec::default(),
-            selected_bit_index: Default::default(),
-        }
-    }
 }
 
 impl BitTwiddleModel {

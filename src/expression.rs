@@ -69,6 +69,7 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
     } else if let Some(rest) = s.to_lowercase().strip_prefix("0b") {
         u64::from_str_radix(rest, 2)
     } else {
+        #[allow(clippy::from_str_radix_10)] // Explicitly state base 10 for completeness sake.
         u64::from_str_radix(s, 10)
     }
 }

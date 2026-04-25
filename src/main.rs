@@ -285,7 +285,7 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     frame.render_widget(expression_history, expression_history_area);
 
     let help_text = Line::from(
-        vec![
+        [
             "[c] Clear",
             "[m] Cycle display mode (forward)",
             "[M] Cycle display mode (backward)",
