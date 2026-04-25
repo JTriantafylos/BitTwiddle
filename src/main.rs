@@ -49,10 +49,7 @@ fn parse_expr(model: &BitTwiddleModel, input: &str) -> Result<(u64, u64, String)
             let operand1: u64 = match operand1_match {
                 Some(s) => parse_unsigned(s.as_str())
                     .map_err(|e| format!("Error parsing operand 1 - {}", e))?,
-                None => *model
-                    .val
-                    .as_ref()
-                    .map_err(|_e| format!("Malformed expression '{}'", input))?,
+                None => model.value,
             };
             let operand2: u64 = parse_unsigned(&caps["operand2"])
                 .map_err(|e| format!("Error parsing operand 2 - {}", e))?;
@@ -151,7 +148,8 @@ impl InputMode {
 
 struct BitTwiddleModel {
     running_state: RunningState,
-    val: Result<u64, String>,
+    value: u64,
+    error: Option<String>,
     display_mode: DisplayMode,
     input_mode: InputMode,
     expression_input_text: String,
@@ -166,7 +164,8 @@ impl Default for BitTwiddleModel {
     fn default() -> Self {
         Self {
             running_state: Default::default(),
-            val: Ok(0),
+            value: 0,
+            error: None,
             display_mode: Default::default(),
             input_mode: Default::default(),
             expression_input_text: Default::default(),
@@ -192,6 +191,7 @@ enum Message {
     NextInputHistory,
     PrevDisplayMode,
     NextDisplayMode,
+    DismissError,
     Quit,
 }
 
@@ -203,6 +203,7 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             KeyCode::Char('M') => Some(Message::PrevDisplayMode),
             KeyCode::Char('m') => Some(Message::NextDisplayMode),
             KeyCode::Char('c') => Some(Message::ClearInput),
+            KeyCode::Esc => Some(Message::DismissError),
 
             KeyCode::Left if model.input_mode == InputMode::BitManipulation => {
                 Some(Message::ShiftSelectedBit(1))
@@ -273,26 +274,32 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             _ => None,
         },
         Message::ClearInput => {
-            model.val = Ok(0);
+            model.value = 0;
+            model.error = None;
             None
         }
         Message::SubmitExpression => {
-            model.val = match parse_expr(model, &model.expression_input_text) {
+            match parse_expr(model, &model.expression_input_text) {
                 Ok((operand1, operand2, operator)) => {
                     match compute(operand1, operand2, &operator) {
                         Ok(result) => {
+                            model.value = result;
+                            model.error = None;
                             model
                                 .expression_input_history
                                 .push(model.expression_input_text.clone());
                             model
                                 .calculation_history
                                 .push((operand1, operator, operand2, result));
-                            Ok(result)
                         }
-                        Err(e) => Err(format!("Computation error: {}", e)),
+                        Err(e) => {
+                            model.error = Some(format!("Computation error: {}", e));
+                        }
                     }
                 }
-                Err(e) => Err(format!("Parse error: {}", e)),
+                Err(e) => {
+                    model.error = Some(format!("Parse error: {}", e));
+                }
             };
             model.expression_input_cursor_index = 0;
             model.expression_input_text.clear();
@@ -314,9 +321,8 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             None
         }
         Message::ToggleSelectedBit => {
-            if let Ok(val) = &mut model.val {
-                *val ^= 1_u64 << model.selected_bit_index;
-            }
+            model.value ^= 1_u64 << model.selected_bit_index;
+            model.error = None;
             None
         }
         Message::PrevInputMode => {
@@ -380,6 +386,10 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
             model.display_mode = model.display_mode.next();
             None
         }
+        Message::DismissError => {
+            model.error = None;
+            None
+        }
         Message::Quit => {
             model.running_state = RunningState::Done;
             None
@@ -406,13 +416,13 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     let [value_area, mode_area] =
         Layout::horizontal([Constraint::Min(1), Constraint::Length(5)]).areas(value_areas);
 
-    let val_text = Text::from(match &model.val {
-        Ok(val) => match model.display_mode {
-            DisplayMode::Decimal => format!("{val}"),
-            DisplayMode::Hex => format!("{val:#X}"),
-            DisplayMode::Octal => format!("{val:#o}"),
+    let val_text = Text::from(match &model.error {
+        Some(err) => err.to_string(),
+        None => match model.display_mode {
+            DisplayMode::Decimal => format!("{}", model.value),
+            DisplayMode::Hex => format!("{:#X}", model.value),
+            DisplayMode::Octal => format!("{:#o}", model.value),
         },
-        Err(err) => err.to_string(),
     });
     frame.render_widget(
         Paragraph::new(val_text).block(Block::bordered()).centered(),
@@ -470,7 +480,7 @@ fn view(model: &mut BitTwiddleModel, frame: &mut Frame) {
     const BITS_PER_LINE: usize = 32;
     const BITS_PER_WORD: usize = 16;
     const BITS_PER_NIBBLE: usize = 4;
-    let display_value = *model.val.as_ref().unwrap_or(&0);
+    let display_value = model.value;
     let bit_manipulation_mode = model.input_mode == InputMode::BitManipulation;
     let selected_bit_index = model.selected_bit_index;
     let selected_bit_style = Style::default()
