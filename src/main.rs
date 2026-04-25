@@ -14,6 +14,12 @@ use ratatui::{
     widgets::{Block, List, ListItem, Paragraph},
 };
 
+/// Parses an unsigned integer literal into a `u64`.
+///
+/// Decimal literals are accepted by default. Prefixes select other bases:
+/// `0x`/`0X` for hexadecimal, `0o`/`0O` for octal, and `0b`/`0B` for binary.
+/// Returns the underlying integer parse error for empty, invalid, or overflowing
+/// literals.
 fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
     if let Some(rest) = s.to_lowercase().strip_prefix("0x") {
         u64::from_str_radix(rest, 16)
@@ -626,4 +632,105 @@ fn main() -> Result<(), std::io::Error> {
 
     ratatui::restore();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::num::IntErrorKind;
+
+    #[test]
+    fn parse_unsigned_accepts_decimal_literals() {
+        assert_eq!(parse_unsigned("0"), Ok(0));
+        assert_eq!(parse_unsigned("42"), Ok(42));
+        assert_eq!(parse_unsigned("18446744073709551615"), Ok(u64::MAX));
+    }
+
+    #[test]
+    fn parse_unsigned_accepts_hex_literals() {
+        assert_eq!(parse_unsigned("0x0"), Ok(0));
+        assert_eq!(parse_unsigned("0xff"), Ok(255));
+        assert_eq!(parse_unsigned("0XFF"), Ok(255));
+        assert_eq!(parse_unsigned("0xffffffffffffffff"), Ok(u64::MAX));
+    }
+
+    #[test]
+    fn parse_unsigned_accepts_octal_literals() {
+        assert_eq!(parse_unsigned("0o0"), Ok(0));
+        assert_eq!(parse_unsigned("0o17"), Ok(15));
+        assert_eq!(parse_unsigned("0O17"), Ok(15));
+        assert_eq!(parse_unsigned("0o1777777777777777777777"), Ok(u64::MAX));
+    }
+
+    #[test]
+    fn parse_unsigned_accepts_binary_literals() {
+        assert_eq!(parse_unsigned("0b0"), Ok(0));
+        assert_eq!(parse_unsigned("0b1010"), Ok(10));
+        assert_eq!(parse_unsigned("0B1010"), Ok(10));
+        assert_eq!(
+            parse_unsigned("0b1111111111111111111111111111111111111111111111111111111111111111"),
+            Ok(u64::MAX)
+        );
+    }
+
+    #[test]
+    fn parse_unsigned_rejects_invalid_digits_for_base() {
+        assert_eq!(
+            *parse_unsigned("0xg").unwrap_err().kind(),
+            IntErrorKind::InvalidDigit
+        );
+        assert_eq!(
+            *parse_unsigned("0o8").unwrap_err().kind(),
+            IntErrorKind::InvalidDigit
+        );
+        assert_eq!(
+            *parse_unsigned("0b2").unwrap_err().kind(),
+            IntErrorKind::InvalidDigit
+        );
+        assert_eq!(
+            *parse_unsigned("12x").unwrap_err().kind(),
+            IntErrorKind::InvalidDigit
+        );
+    }
+
+    #[test]
+    fn parse_unsigned_rejects_empty_or_prefix_only_input() {
+        assert_eq!(*parse_unsigned("").unwrap_err().kind(), IntErrorKind::Empty);
+        assert_eq!(
+            *parse_unsigned("0x").unwrap_err().kind(),
+            IntErrorKind::Empty
+        );
+        assert_eq!(
+            *parse_unsigned("0o").unwrap_err().kind(),
+            IntErrorKind::Empty
+        );
+        assert_eq!(
+            *parse_unsigned("0b").unwrap_err().kind(),
+            IntErrorKind::Empty
+        );
+    }
+
+    #[test]
+    fn parse_unsigned_rejects_overflow() {
+        assert_eq!(
+            *parse_unsigned("18446744073709551616").unwrap_err().kind(),
+            IntErrorKind::PosOverflow
+        );
+        assert_eq!(
+            *parse_unsigned("0x10000000000000000").unwrap_err().kind(),
+            IntErrorKind::PosOverflow
+        );
+        assert_eq!(
+            *parse_unsigned("0o2000000000000000000000")
+                .unwrap_err()
+                .kind(),
+            IntErrorKind::PosOverflow
+        );
+        assert_eq!(
+            *parse_unsigned("0b10000000000000000000000000000000000000000000000000000000000000000")
+                .unwrap_err()
+                .kind(),
+            IntErrorKind::PosOverflow
+        );
+    }
 }
