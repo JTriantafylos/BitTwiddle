@@ -267,15 +267,18 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
                 .iter()
                 .rev()
                 .map(|e| match model.display_mode {
-                    DisplayMode::Decimal => {
-                        ListItem::new(format!("{} {} {} = {}", e.0, e.1, e.2, e.3))
-                    }
-                    DisplayMode::Hex => {
-                        ListItem::new(format!("{:#X} {} {:#X} = {:#X}", e.0, e.1, e.2, e.3))
-                    }
-                    DisplayMode::Octal => {
-                        ListItem::new(format!("{:#o} {} {:#o} = {:#o}", e.0, e.1, e.2, e.3))
-                    }
+                    DisplayMode::Decimal => ListItem::new(format!(
+                        "{} {} {} = {}",
+                        e.operand1, e.operator, e.operand2, e.result
+                    )),
+                    DisplayMode::Hex => ListItem::new(format!(
+                        "{:#X} {} {:#X} = {:#X}",
+                        e.operand1, e.operator, e.operand2, e.result
+                    )),
+                    DisplayMode::Octal => ListItem::new(format!(
+                        "{:#o} {} {:#o} = {:#o}",
+                        e.operand1, e.operator, e.operand2, e.result
+                    )),
                 }),
         )
         .block(

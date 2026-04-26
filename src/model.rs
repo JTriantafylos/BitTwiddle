@@ -62,6 +62,14 @@ impl InputMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CalculationHistoryEntry {
+    pub(crate) operand1: u64,
+    pub(crate) operator: Operator,
+    pub(crate) operand2: u64,
+    pub(crate) result: u64,
+}
+
 #[derive(Default)]
 pub(crate) struct BitTwiddleModel {
     pub(crate) running_state: RunningState,
@@ -73,7 +81,7 @@ pub(crate) struct BitTwiddleModel {
     pub(crate) expression_input_cursor_index: usize,
     pub(crate) expression_input_history: Vec<String>,
     pub(crate) expression_input_history_index: Option<usize>,
-    pub(crate) calculation_history: Vec<(u64, Operator, u64, u64)>,
+    pub(crate) calculation_history: Vec<CalculationHistoryEntry>,
     pub(crate) selected_bit_index: usize,
 }
 
@@ -97,12 +105,12 @@ impl BitTwiddleModel {
                         self.error = None;
                         self.expression_input_history
                             .push(self.expression_input_text.clone());
-                        self.calculation_history.push((
-                            expression.operand1,
-                            expression.operator,
-                            expression.operand2,
+                        self.calculation_history.push(CalculationHistoryEntry {
+                            operand1: expression.operand1,
+                            operator: expression.operator,
+                            operand2: expression.operand2,
                             result,
-                        ));
+                        });
                     }
                     Err(e) => {
                         self.error = Some(format!("Computation error: {}", e));
@@ -328,7 +336,15 @@ mod tests {
         assert_eq!(model.expression_input_cursor_index, 0);
         assert_eq!(model.expression_input_history_index, None);
         assert_eq!(model.expression_input_history, vec!["2 + 3"]);
-        assert_eq!(model.calculation_history, vec![(2, Operator::Add, 3, 5)]);
+        assert_eq!(
+            model.calculation_history,
+            vec![CalculationHistoryEntry {
+                operand1: 2,
+                operator: Operator::Add,
+                operand2: 3,
+                result: 5,
+            }]
+        );
     }
 
     #[test]
@@ -343,7 +359,15 @@ mod tests {
         model.submit_expression();
 
         assert_eq!(model.value, 17);
-        assert_eq!(model.calculation_history, vec![(10, Operator::Add, 7, 17)]);
+        assert_eq!(
+            model.calculation_history,
+            vec![CalculationHistoryEntry {
+                operand1: 10,
+                operator: Operator::Add,
+                operand2: 7,
+                result: 17,
+            }]
+        );
     }
 
     #[test]
