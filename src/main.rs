@@ -1,10 +1,10 @@
 use ratatui::{
     Frame,
     crossterm::event::{self, Event, KeyCode, KeyEvent},
-    layout::{Constraint, Layout, Position},
+    layout::{Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, List, ListItem, Paragraph},
+    widgets::{Block, Clear, List, ListItem, Paragraph},
 };
 
 mod expression;
@@ -30,16 +30,27 @@ enum Message {
     PrevDisplayMode,
     NextDisplayMode,
     DismissError,
-    Quit,
+    RequestQuit,
+    CancelQuit,
+    ConfirmQuit,
 }
 
 fn map_key_to_message(model: &BitTwiddleModel, key: KeyEvent) -> Option<Message> {
+    if model.show_quit_confirmation {
+        return match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => Some(Message::ConfirmQuit),
+            KeyCode::Char('n') | KeyCode::Char('N') => Some(Message::CancelQuit),
+            _ => None,
+        };
+    }
+
     match key.code {
         KeyCode::BackTab => Some(Message::PrevInputMode),
         KeyCode::Tab => Some(Message::NextInputMode),
         KeyCode::Char('M') => Some(Message::PrevDisplayMode),
         KeyCode::Char('m') => Some(Message::NextDisplayMode),
         KeyCode::Char('c') => Some(Message::ClearInput),
+        KeyCode::Char('q') => Some(Message::RequestQuit),
         KeyCode::Esc => Some(Message::DismissError),
         _ => map_mode_key_to_message(&model.input_mode, key),
     }
@@ -98,7 +109,9 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::PrevDisplayMode => model.prev_display_mode(),
         Message::NextDisplayMode => model.next_display_mode(),
         Message::DismissError => model.dismiss_error(),
-        Message::Quit => model.quit(),
+        Message::RequestQuit => model.request_quit(),
+        Message::CancelQuit => model.cancel_quit(),
+        Message::ConfirmQuit => model.confirm_quit(),
     }
 }
 
@@ -302,14 +315,45 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
         .join(" "),
     );
     frame.render_widget(Paragraph::new(help_text).centered(), help_area);
+
+    if model.show_quit_confirmation {
+        render_quit_confirmation(frame);
+    }
+}
+
+fn render_quit_confirmation(frame: &mut Frame) {
+    let area = centered_rect(44, 5, frame.area());
+    let dialog = Paragraph::new(Text::from(vec![
+        Line::from("Quit BitTwiddle?"),
+        Line::from(""),
+        Line::from("Press Y to quit or N to continue."),
+    ]))
+    .block(
+        Block::bordered()
+            .title("Confirm Quit")
+            .border_style(Style::default().fg(Color::Yellow)),
+    )
+    .centered();
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(dialog, area);
+}
+
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
 }
 
 fn handle_event() -> Result<Option<Message>, std::io::Error> {
     if let Event::Key(key) = event::read()? {
-        match key.code {
-            KeyCode::Char('q') => Ok(Some(Message::Quit)),
-            _ => Ok(Some(Message::KeyPressed(key))),
-        }
+        Ok(Some(Message::KeyPressed(key)))
     } else {
         Ok(None)
     }
@@ -338,4 +382,50 @@ fn main() -> Result<(), std::io::Error> {
 
     ratatui::restore();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyModifiers;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn q_requests_quit_confirmation() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('q'))),
+            Some(Message::RequestQuit)
+        );
+    }
+
+    #[test]
+    fn quit_confirmation_accepts_y_or_n_only() {
+        let model = BitTwiddleModel {
+            show_quit_confirmation: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('y'))),
+            Some(Message::ConfirmQuit)
+        );
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('Y'))),
+            Some(Message::ConfirmQuit)
+        );
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('n'))),
+            Some(Message::CancelQuit)
+        );
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('N'))),
+            Some(Message::CancelQuit)
+        );
+        assert_eq!(map_key_to_message(&model, key(KeyCode::Char('q'))), None);
+    }
 }

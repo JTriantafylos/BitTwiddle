@@ -73,6 +73,7 @@ pub(crate) struct CalculationHistoryEntry {
 #[derive(Default)]
 pub(crate) struct BitTwiddleModel {
     pub(crate) running_state: RunningState,
+    pub(crate) show_quit_confirmation: bool,
     pub(crate) value: u64,
     pub(crate) error: Option<String>,
     pub(crate) display_mode: DisplayMode,
@@ -204,7 +205,17 @@ impl BitTwiddleModel {
         None
     }
 
-    pub(crate) fn quit(&mut self) -> Option<Message> {
+    pub(crate) fn request_quit(&mut self) -> Option<Message> {
+        self.show_quit_confirmation = true;
+        None
+    }
+
+    pub(crate) fn cancel_quit(&mut self) -> Option<Message> {
+        self.show_quit_confirmation = false;
+        None
+    }
+
+    pub(crate) fn confirm_quit(&mut self) -> Option<Message> {
         self.running_state = RunningState::Done;
         None
     }
@@ -270,6 +281,7 @@ mod tests {
         let model = BitTwiddleModel::default();
 
         assert_eq!(model.running_state, RunningState::Running);
+        assert!(!model.show_quit_confirmation);
         assert_eq!(model.value, 0);
         assert_eq!(model.error, None);
         assert_eq!(model.display_mode, DisplayMode::Decimal);
@@ -556,10 +568,33 @@ mod tests {
     }
 
     #[test]
-    fn quit_sets_running_state_to_done() {
+    fn request_quit_shows_confirmation() {
         let mut model = BitTwiddleModel::default();
 
-        assert_eq!(model.quit(), None);
+        assert_eq!(model.request_quit(), None);
+
+        assert!(model.show_quit_confirmation);
+        assert_eq!(model.running_state, RunningState::Running);
+    }
+
+    #[test]
+    fn cancel_quit_hides_confirmation() {
+        let mut model = BitTwiddleModel {
+            show_quit_confirmation: true,
+            ..Default::default()
+        };
+
+        assert_eq!(model.cancel_quit(), None);
+
+        assert!(!model.show_quit_confirmation);
+        assert_eq!(model.running_state, RunningState::Running);
+    }
+
+    #[test]
+    fn confirm_quit_sets_running_state_to_done() {
+        let mut model = BitTwiddleModel::default();
+
+        assert_eq!(model.confirm_quit(), None);
 
         assert_eq!(model.running_state, RunningState::Done);
     }
