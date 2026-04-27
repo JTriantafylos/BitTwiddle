@@ -32,6 +32,8 @@ enum Message {
     ShiftSelectedBit(isize),
     ToggleSelectedBit,
     ToggleBit(usize),
+    FocusExpressionInput(usize),
+    FocusCalculationHistory(Option<usize>),
     PrevInputMode,
     NextInputMode,
     PrevInputHistory,
@@ -124,6 +126,10 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::ShiftSelectedBit(offset) => model.shift_selected_bit(offset),
         Message::ToggleSelectedBit => model.toggle_selected_bit(),
         Message::ToggleBit(bit_index) => model.toggle_bit(bit_index),
+        Message::FocusExpressionInput(cursor_index) => model.focus_expression_input(cursor_index),
+        Message::FocusCalculationHistory(selection_index) => {
+            model.focus_calculation_history(selection_index)
+        }
         Message::PrevInputMode => model.prev_input_mode(),
         Message::NextInputMode => model.next_input_mode(),
         Message::PrevInputHistory => model.prev_input_history(),
@@ -149,7 +155,22 @@ fn map_mouse_to_message(
         return None;
     }
 
-    hit_test_bit(bit_area(frame_area), mouse.column, mouse.row).map(Message::ToggleBit)
+    let [_, bit_area, input_area, expression_history_area, _] = app_areas(frame_area);
+
+    hit_test_bit(bit_area, mouse.column, mouse.row)
+        .map(Message::ToggleBit)
+        .or_else(|| {
+            hit_test_input(input_area, mouse.column, mouse.row).map(Message::FocusExpressionInput)
+        })
+        .or_else(|| {
+            hit_test_history(
+                expression_history_area,
+                model.calculation_history.len(),
+                mouse.column,
+                mouse.row,
+            )
+            .map(Message::FocusCalculationHistory)
+        })
 }
 
 fn app_areas(area: Rect) -> [Rect; 5] {
@@ -161,11 +182,6 @@ fn app_areas(area: Rect) -> [Rect; 5] {
         Constraint::Length(1),
     ])
     .areas(area)
-}
-
-fn bit_area(area: Rect) -> Rect {
-    let [_, bit_area, _, _, _] = app_areas(area);
-    bit_area
 }
 
 fn view(model: &BitTwiddleModel, frame: &mut Frame) {
@@ -382,6 +398,37 @@ fn hit_test_bit(area: Rect, column: u16, row: u16) -> Option<usize> {
     bit_index_at_line_column(if y == 0 { 1 } else { 0 }, line_column)
 }
 
+fn hit_test_input(area: Rect, column: u16, row: u16) -> Option<usize> {
+    let inner_width = area.width.saturating_sub(2);
+    let x = column.checked_sub(area.x + 1)?;
+    let y = row.checked_sub(area.y + 1)?;
+
+    if y == 0 && x < inner_width {
+        Some(x as usize)
+    } else {
+        None
+    }
+}
+
+fn hit_test_history(
+    area: Rect,
+    history_len: usize,
+    column: u16,
+    row: u16,
+) -> Option<Option<usize>> {
+    let inner_width = area.width.saturating_sub(2);
+    let inner_height = area.height.saturating_sub(2);
+    let x = column.checked_sub(area.x + 1)?;
+    let y = row.checked_sub(area.y + 1)?;
+
+    if x >= inner_width || y >= inner_height {
+        return None;
+    }
+
+    let index = y as usize;
+    Some((index < history_len).then_some(index))
+}
+
 fn bit_index_at_line_column(line_num: usize, target_column: u16) -> Option<usize> {
     const BITS_PER_LINE: usize = 32;
     const BITS_PER_WORD: usize = 16;
@@ -486,6 +533,7 @@ fn main() -> Result<(), io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::expression::Operator;
     use ratatui::crossterm::event::KeyModifiers;
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -498,6 +546,15 @@ mod tests {
             column,
             row,
             modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    fn history_entry(value: u64) -> model::CalculationHistoryEntry {
+        model::CalculationHistoryEntry {
+            operand1: value,
+            operator: Operator::Add,
+            operand2: value,
+            result: value + value,
         }
     }
 
@@ -610,6 +667,72 @@ mod tests {
             map_mouse_to_message(&model, left_click(5, 4), frame_area),
             Some(Message::ToggleBit(63))
         );
+    }
+
+    #[test]
+    fn left_click_on_input_maps_to_focus_input_with_cursor_position() {
+        let model = BitTwiddleModel::default();
+        let frame_area = Rect::new(0, 0, 82, 16);
+
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(6, 8), frame_area),
+            Some(Message::FocusExpressionInput(5))
+        );
+    }
+
+    #[test]
+    fn input_hit_test_ignores_borders_and_outside_area() {
+        let area = Rect::new(0, 7, 82, 3);
+
+        assert_eq!(hit_test_input(area, 1, 8), Some(0));
+        assert_eq!(hit_test_input(area, 0, 8), None);
+        assert_eq!(hit_test_input(area, 81, 8), None);
+        assert_eq!(hit_test_input(area, 1, 7), None);
+        assert_eq!(hit_test_input(area, 1, 9), None);
+    }
+
+    #[test]
+    fn left_click_on_history_item_maps_to_visible_history_index() {
+        let model = BitTwiddleModel {
+            calculation_history: vec![history_entry(1), history_entry(2), history_entry(3)],
+            ..Default::default()
+        };
+        let frame_area = Rect::new(0, 0, 82, 16);
+
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(1, 11), frame_area),
+            Some(Message::FocusCalculationHistory(Some(0)))
+        );
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(1, 12), frame_area),
+            Some(Message::FocusCalculationHistory(Some(1)))
+        );
+    }
+
+    #[test]
+    fn left_click_on_history_body_below_items_focuses_history_without_clicked_item() {
+        let model = BitTwiddleModel {
+            calculation_history: vec![history_entry(1), history_entry(2)],
+            ..Default::default()
+        };
+        let frame_area = Rect::new(0, 0, 82, 16);
+
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(1, 13), frame_area),
+            Some(Message::FocusCalculationHistory(None))
+        );
+    }
+
+    #[test]
+    fn history_hit_test_ignores_borders_and_outside_area() {
+        let area = Rect::new(0, 10, 82, 5);
+
+        assert_eq!(hit_test_history(area, 1, 1, 11), Some(Some(0)));
+        assert_eq!(hit_test_history(area, 1, 1, 12), Some(None));
+        assert_eq!(hit_test_history(area, 1, 0, 11), None);
+        assert_eq!(hit_test_history(area, 1, 81, 11), None);
+        assert_eq!(hit_test_history(area, 1, 1, 10), None);
+        assert_eq!(hit_test_history(area, 1, 1, 14), None);
     }
 
     #[test]

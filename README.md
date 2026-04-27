@@ -61,6 +61,7 @@ the current calculator value as the first operand:
 - `c`: Clear the current value
 - `Esc`: Dismiss an error
 - `q`: Quit
+- Left-click the input box: Switch to expression input mode and move the cursor
 
 When editing bits:
 
@@ -72,6 +73,7 @@ When selecting history:
 
 - `Up` / `Down`: Select a history item
 - `Enter`: Copy the selected expression into the input box
+- Left-click a history item: Switch to history selection mode and select that item
 
 ## Usage Notes
 

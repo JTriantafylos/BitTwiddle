@@ -188,6 +188,29 @@ impl BitTwiddleModel {
         self.toggle_selected_bit()
     }
 
+    pub(crate) fn focus_expression_input(&mut self, cursor_index: usize) -> Option<Message> {
+        self.input_mode = InputMode::ExpressionInput;
+        self.expression_input_cursor_index =
+            cursor_index.clamp(0, self.expression_input_text.len());
+        self.sync_calculation_history_selection();
+        None
+    }
+
+    pub(crate) fn focus_calculation_history(
+        &mut self,
+        selection_index: Option<usize>,
+    ) -> Option<Message> {
+        self.input_mode = InputMode::HistorySelect;
+        self.calculation_history_selection_index =
+            selection_index.filter(|index| *index < self.calculation_history.len());
+
+        if self.calculation_history_selection_index.is_none() {
+            self.sync_calculation_history_selection();
+        }
+
+        None
+    }
+
     pub(crate) fn prev_input_mode(&mut self) -> Option<Message> {
         self.input_mode = self.input_mode.prev();
         self.sync_calculation_history_selection();
@@ -668,6 +691,85 @@ mod tests {
         assert_eq!(model.calculation_history_selection_index, None);
         assert_eq!(model.value, 1 << 5);
         assert_eq!(model.error, None);
+    }
+
+    #[test]
+    fn focus_expression_input_enters_input_mode_and_clamps_cursor() {
+        let mut model = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            expression_input_text: "12 + 34".to_string(),
+            expression_input_cursor_index: 2,
+            calculation_history: vec![CalculationHistoryEntry {
+                operand1: 1,
+                operator: Operator::Add,
+                operand2: 2,
+                result: 3,
+            }],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        assert_eq!(model.focus_expression_input(100), None);
+
+        assert_eq!(model.input_mode, InputMode::ExpressionInput);
+        assert_eq!(model.expression_input_text, "12 + 34");
+        assert_eq!(model.expression_input_cursor_index, 7);
+        assert_eq!(model.calculation_history_selection_index, None);
+    }
+
+    #[test]
+    fn focus_calculation_history_selects_clicked_visible_index() {
+        let mut model = BitTwiddleModel {
+            input_mode: InputMode::ExpressionInput,
+            calculation_history: vec![
+                CalculationHistoryEntry {
+                    operand1: 1,
+                    operator: Operator::Add,
+                    operand2: 1,
+                    result: 2,
+                },
+                CalculationHistoryEntry {
+                    operand1: 2,
+                    operator: Operator::Add,
+                    operand2: 2,
+                    result: 4,
+                },
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(model.focus_calculation_history(Some(1)), None);
+
+        assert_eq!(model.input_mode, InputMode::HistorySelect);
+        assert_eq!(model.calculation_history_selection_index, Some(1));
+    }
+
+    #[test]
+    fn focus_calculation_history_without_clicked_item_uses_default_selection() {
+        let mut model = BitTwiddleModel {
+            calculation_history: vec![CalculationHistoryEntry {
+                operand1: 1,
+                operator: Operator::Add,
+                operand2: 2,
+                result: 3,
+            }],
+            ..Default::default()
+        };
+
+        assert_eq!(model.focus_calculation_history(None), None);
+
+        assert_eq!(model.input_mode, InputMode::HistorySelect);
+        assert_eq!(model.calculation_history_selection_index, Some(0));
+    }
+
+    #[test]
+    fn focus_calculation_history_without_history_leaves_selection_empty() {
+        let mut model = BitTwiddleModel::default();
+
+        assert_eq!(model.focus_calculation_history(Some(0)), None);
+
+        assert_eq!(model.input_mode, InputMode::HistorySelect);
+        assert_eq!(model.calculation_history_selection_index, None);
     }
 
     #[test]
