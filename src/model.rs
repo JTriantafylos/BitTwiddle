@@ -83,6 +83,7 @@ pub(crate) struct BitTwiddleModel {
     pub(crate) expression_input_history: Vec<String>,
     pub(crate) expression_input_history_index: Option<usize>,
     pub(crate) calculation_history: Vec<CalculationHistoryEntry>,
+    pub(crate) calculation_history_selection_index: Option<usize>,
     pub(crate) selected_bit_index: usize,
 }
 
@@ -182,12 +183,22 @@ impl BitTwiddleModel {
 
     pub(crate) fn prev_input_mode(&mut self) -> Option<Message> {
         self.input_mode = self.input_mode.prev();
+        self.sync_calculation_history_selection();
         None
     }
 
     pub(crate) fn next_input_mode(&mut self) -> Option<Message> {
         self.input_mode = self.input_mode.next();
+        self.sync_calculation_history_selection();
         None
+    }
+
+    fn sync_calculation_history_selection(&mut self) {
+        if self.input_mode == InputMode::HistorySelect && !self.calculation_history.is_empty() {
+            self.calculation_history_selection_index = Some(0);
+        } else {
+            self.calculation_history_selection_index = None;
+        }
     }
 
     pub(crate) fn prev_display_mode(&mut self) -> Option<Message> {
@@ -262,6 +273,100 @@ impl BitTwiddleModel {
         self.expression_input_cursor_index = self.expression_input_text.len();
         self.expression_input_history_index = Some(index);
     }
+
+    pub(crate) fn prev_calculation_history(&mut self) -> Option<Message> {
+        if self.calculation_history.is_empty() {
+            self.calculation_history_selection_index = None;
+        } else {
+            self.calculation_history_selection_index = Some(
+                self.calculation_history_selection_index
+                    .unwrap_or(0)
+                    .saturating_sub(1),
+            );
+        }
+        None
+    }
+
+    pub(crate) fn next_calculation_history(&mut self) -> Option<Message> {
+        if self.calculation_history.is_empty() {
+            self.calculation_history_selection_index = None;
+        } else {
+            let last_index = self.calculation_history.len() - 1;
+            self.calculation_history_selection_index = Some(
+                self.calculation_history_selection_index
+                    .unwrap_or(0)
+                    .saturating_add(1)
+                    .clamp(0, last_index),
+            );
+        }
+        None
+    }
+
+    pub(crate) fn copy_selected_calculation_history(&mut self) -> Option<Message> {
+        if let Some(entry) = self.selected_calculation_history_entry() {
+            self.expression_input_text = self.format_calculation_history_expression(entry);
+            self.expression_input_cursor_index = self.expression_input_text.len();
+            self.expression_input_history_index = None;
+            self.input_mode = InputMode::ExpressionInput;
+            self.calculation_history_selection_index = None;
+        }
+        None
+    }
+
+    fn selected_calculation_history_entry(&self) -> Option<&CalculationHistoryEntry> {
+        let index = self.calculation_history_selection_index?;
+        let storage_index = self
+            .calculation_history
+            .len()
+            .checked_sub(index.saturating_add(1))?;
+        self.calculation_history.get(storage_index)
+    }
+
+    pub(crate) fn format_calculation_history_expression(
+        &self,
+        entry: &CalculationHistoryEntry,
+    ) -> String {
+        match self.display_mode {
+            DisplayMode::Decimal => {
+                format!("{} {} {}", entry.operand1, entry.operator, entry.operand2)
+            }
+            DisplayMode::Hex => {
+                format!(
+                    "{:#X} {} {:#X}",
+                    entry.operand1, entry.operator, entry.operand2
+                )
+            }
+            DisplayMode::Octal => {
+                format!(
+                    "{:#o} {} {:#o}",
+                    entry.operand1, entry.operator, entry.operand2
+                )
+            }
+        }
+    }
+
+    pub(crate) fn format_calculation_history_entry(
+        &self,
+        entry: &CalculationHistoryEntry,
+    ) -> String {
+        match self.display_mode {
+            DisplayMode::Decimal => format!(
+                "{} = {}",
+                self.format_calculation_history_expression(entry),
+                entry.result
+            ),
+            DisplayMode::Hex => format!(
+                "{} = {:#X}",
+                self.format_calculation_history_expression(entry),
+                entry.result
+            ),
+            DisplayMode::Octal => format!(
+                "{} = {:#o}",
+                self.format_calculation_history_expression(entry),
+                entry.result
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -291,6 +396,7 @@ mod tests {
         assert_eq!(model.expression_input_history, Vec::<String>::new());
         assert_eq!(model.expression_input_history_index, None);
         assert_eq!(model.calculation_history, Vec::new());
+        assert_eq!(model.calculation_history_selection_index, None);
         assert_eq!(model.selected_bit_index, 0);
     }
 
@@ -539,9 +645,44 @@ mod tests {
 
         assert_eq!(model.prev_input_mode(), None);
         assert_eq!(model.input_mode, InputMode::BitManipulation);
+        assert_eq!(model.calculation_history_selection_index, None);
 
         assert_eq!(model.next_input_mode(), None);
         assert_eq!(model.input_mode, InputMode::ExpressionInput);
+        assert_eq!(model.calculation_history_selection_index, None);
+    }
+
+    #[test]
+    fn entering_history_select_initializes_selection_to_newest_entry() {
+        let mut model = BitTwiddleModel {
+            calculation_history: vec![CalculationHistoryEntry {
+                operand1: 1,
+                operator: Operator::Add,
+                operand2: 2,
+                result: 3,
+            }],
+            ..Default::default()
+        };
+
+        assert_eq!(model.next_input_mode(), None);
+
+        assert_eq!(model.input_mode, InputMode::HistorySelect);
+        assert_eq!(model.calculation_history_selection_index, Some(0));
+
+        model.next_input_mode();
+
+        assert_eq!(model.input_mode, InputMode::BitManipulation);
+        assert_eq!(model.calculation_history_selection_index, None);
+    }
+
+    #[test]
+    fn entering_history_select_without_history_leaves_selection_empty() {
+        let mut model = BitTwiddleModel::default();
+
+        assert_eq!(model.next_input_mode(), None);
+
+        assert_eq!(model.input_mode, InputMode::HistorySelect);
+        assert_eq!(model.calculation_history_selection_index, None);
     }
 
     #[test]
@@ -694,5 +835,154 @@ mod tests {
         assert_eq!(model.expression_input_text, "2 + 2");
         assert_eq!(model.expression_input_cursor_index, 5);
         assert_eq!(model.expression_input_history_index, Some(1));
+    }
+
+    #[test]
+    fn calculation_history_selection_moves_newest_first_and_clamps() {
+        let mut model = BitTwiddleModel {
+            calculation_history: vec![
+                CalculationHistoryEntry {
+                    operand1: 1,
+                    operator: Operator::Add,
+                    operand2: 1,
+                    result: 2,
+                },
+                CalculationHistoryEntry {
+                    operand1: 2,
+                    operator: Operator::Add,
+                    operand2: 2,
+                    result: 4,
+                },
+                CalculationHistoryEntry {
+                    operand1: 3,
+                    operator: Operator::Add,
+                    operand2: 3,
+                    result: 6,
+                },
+            ],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        assert_eq!(model.prev_calculation_history(), None);
+        assert_eq!(model.calculation_history_selection_index, Some(0));
+
+        model.next_calculation_history();
+        assert_eq!(model.calculation_history_selection_index, Some(1));
+
+        model.next_calculation_history();
+        model.next_calculation_history();
+        assert_eq!(model.calculation_history_selection_index, Some(2));
+
+        model.prev_calculation_history();
+        assert_eq!(model.calculation_history_selection_index, Some(1));
+    }
+
+    #[test]
+    fn calculation_history_selection_does_nothing_without_history() {
+        let mut model = BitTwiddleModel::default();
+
+        assert_eq!(model.next_calculation_history(), None);
+        assert_eq!(model.calculation_history_selection_index, None);
+
+        assert_eq!(model.prev_calculation_history(), None);
+        assert_eq!(model.calculation_history_selection_index, None);
+
+        assert_eq!(model.copy_selected_calculation_history(), None);
+        assert_eq!(model.input_mode, InputMode::ExpressionInput);
+        assert_eq!(model.expression_input_text, "");
+    }
+
+    #[test]
+    fn copy_selected_calculation_history_uses_decimal_display_mode() {
+        let mut model = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            expression_input_text: "current".to_string(),
+            expression_input_cursor_index: 7,
+            expression_input_history_index: Some(0),
+            calculation_history: vec![
+                CalculationHistoryEntry {
+                    operand1: 1,
+                    operator: Operator::Add,
+                    operand2: 1,
+                    result: 2,
+                },
+                CalculationHistoryEntry {
+                    operand1: 10,
+                    operator: Operator::ShiftLeft,
+                    operand2: 2,
+                    result: 40,
+                },
+            ],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        assert_eq!(model.copy_selected_calculation_history(), None);
+
+        assert_eq!(model.expression_input_text, "10 << 2");
+        assert_eq!(model.expression_input_cursor_index, 7);
+        assert_eq!(model.expression_input_history_index, None);
+        assert_eq!(model.input_mode, InputMode::ExpressionInput);
+        assert_eq!(model.calculation_history_selection_index, None);
+    }
+
+    #[test]
+    fn copy_selected_calculation_history_uses_hex_display_mode() {
+        let mut model = BitTwiddleModel {
+            display_mode: DisplayMode::Hex,
+            input_mode: InputMode::HistorySelect,
+            calculation_history: vec![CalculationHistoryEntry {
+                operand1: 10,
+                operator: Operator::BitOr,
+                operand2: 15,
+                result: 15,
+            }],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        model.copy_selected_calculation_history();
+
+        assert_eq!(model.expression_input_text, "0xA | 0xF");
+    }
+
+    #[test]
+    fn copy_selected_calculation_history_uses_octal_display_mode() {
+        let mut model = BitTwiddleModel {
+            display_mode: DisplayMode::Octal,
+            input_mode: InputMode::HistorySelect,
+            calculation_history: vec![CalculationHistoryEntry {
+                operand1: 8,
+                operator: Operator::BitAnd,
+                operand2: 7,
+                result: 0,
+            }],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        model.copy_selected_calculation_history();
+
+        assert_eq!(model.expression_input_text, "0o10 & 0o7");
+    }
+
+    #[test]
+    fn format_calculation_history_entry_includes_result() {
+        let model = BitTwiddleModel {
+            display_mode: DisplayMode::Hex,
+            ..Default::default()
+        };
+        let entry = CalculationHistoryEntry {
+            operand1: 10,
+            operator: Operator::Add,
+            operand2: 5,
+            result: 15,
+        };
+
+        assert_eq!(
+            model.format_calculation_history_entry(&entry),
+            "0xA + 0x5 = 0xF"
+        );
     }
 }

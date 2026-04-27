@@ -27,6 +27,9 @@ enum Message {
     NextInputMode,
     PrevInputHistory,
     NextInputHistory,
+    PrevCalculationHistory,
+    NextCalculationHistory,
+    CopySelectedCalculationHistory,
     PrevDisplayMode,
     NextDisplayMode,
     DismissError,
@@ -60,7 +63,7 @@ fn map_mode_key_to_message(input_mode: &InputMode, key: KeyEvent) -> Option<Mess
     match input_mode {
         InputMode::BitManipulation => map_bit_manipulation_key_to_message(key),
         InputMode::ExpressionInput => map_expression_input_key_to_message(key),
-        InputMode::HistorySelect => None,
+        InputMode::HistorySelect => map_history_select_key_to_message(key),
     }
 }
 
@@ -71,6 +74,15 @@ fn map_bit_manipulation_key_to_message(key: KeyEvent) -> Option<Message> {
         KeyCode::Up => Some(Message::ShiftSelectedBit(32)),
         KeyCode::Down => Some(Message::ShiftSelectedBit(-32)),
         KeyCode::Char(' ') => Some(Message::ToggleSelectedBit),
+        _ => None,
+    }
+}
+
+fn map_history_select_key_to_message(key: KeyEvent) -> Option<Message> {
+    match key.code {
+        KeyCode::Up => Some(Message::PrevCalculationHistory),
+        KeyCode::Down => Some(Message::NextCalculationHistory),
+        KeyCode::Enter => Some(Message::CopySelectedCalculationHistory),
         _ => None,
     }
 }
@@ -106,6 +118,9 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::NextInputMode => model.next_input_mode(),
         Message::PrevInputHistory => model.prev_input_history(),
         Message::NextInputHistory => model.next_input_history(),
+        Message::PrevCalculationHistory => model.prev_calculation_history(),
+        Message::NextCalculationHistory => model.next_calculation_history(),
+        Message::CopySelectedCalculationHistory => model.copy_selected_calculation_history(),
         Message::PrevDisplayMode => model.prev_display_mode(),
         Message::NextDisplayMode => model.next_display_mode(),
         Message::DismissError => model.dismiss_error(),
@@ -273,35 +288,30 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
         .centered();
     frame.render_widget(bit_visualization, bit_area);
 
-    let expression_history =
-        List::new(
-            model
-                .calculation_history
-                .iter()
-                .rev()
-                .map(|e| match model.display_mode {
-                    DisplayMode::Decimal => ListItem::new(format!(
-                        "{} {} {} = {}",
-                        e.operand1, e.operator, e.operand2, e.result
-                    )),
-                    DisplayMode::Hex => ListItem::new(format!(
-                        "{:#X} {} {:#X} = {:#X}",
-                        e.operand1, e.operator, e.operand2, e.result
-                    )),
-                    DisplayMode::Octal => ListItem::new(format!(
-                        "{:#o} {} {:#o} = {:#o}",
-                        e.operand1, e.operator, e.operand2, e.result
-                    )),
-                }),
-        )
-        .block(
-            Block::bordered()
-                .border_style(match model.input_mode {
-                    InputMode::HistorySelect => Style::default().fg(Color::Yellow),
-                    _ => Style::default(),
-                })
-                .title("History"),
-        );
+    let expression_history = List::new(model.calculation_history.iter().rev().enumerate().map(
+        |(index, e)| {
+            let item = ListItem::new(model.format_calculation_history_entry(e));
+            if model.input_mode == InputMode::HistorySelect
+                && model.calculation_history_selection_index == Some(index)
+            {
+                item.style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::REVERSED),
+                )
+            } else {
+                item
+            }
+        },
+    ))
+    .block(
+        Block::bordered()
+            .border_style(match model.input_mode {
+                InputMode::HistorySelect => Style::default().fg(Color::Yellow),
+                _ => Style::default(),
+            })
+            .title("History"),
+    );
     frame.render_widget(expression_history, expression_history_area);
 
     let help_text = Line::from(
@@ -427,5 +437,26 @@ mod tests {
             Some(Message::CancelQuit)
         );
         assert_eq!(map_key_to_message(&model, key(KeyCode::Char('q'))), None);
+    }
+
+    #[test]
+    fn history_select_maps_up_down_and_enter() {
+        let model = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Up)),
+            Some(Message::PrevCalculationHistory)
+        );
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Down)),
+            Some(Message::NextCalculationHistory)
+        );
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Enter)),
+            Some(Message::CopySelectedCalculationHistory)
+        );
     }
 }

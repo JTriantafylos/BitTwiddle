@@ -56,7 +56,7 @@ the current calculator value as the first operand:
 
 ## Controls
 
-- `Tab` / `Shift+Tab`: Switch between bit manipulation, expression input, and input history
+- `Tab` / `Shift+Tab`: Switch between bit manipulation, expression input, and history selection
 - `m` / `M`: Cycle display mode forward or backward
 - `c`: Clear the current value
 - `Esc`: Dismiss an error
@@ -66,6 +66,11 @@ When editing bits:
 
 - `Up` / `Down` / `Left` / `Right`: Select bit
 - `Space`: Toggle selected bit
+
+When selecting history:
+
+- `Up` / `Down`: Select a history item
+- `Enter`: Copy the selected expression into the input box
 
 ## Usage Notes
 
