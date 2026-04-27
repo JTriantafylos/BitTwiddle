@@ -361,21 +361,58 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     );
     frame.render_widget(expression_history, expression_history_area);
 
-    let help_text = Line::from(
-        [
-            "[c] Clear",
-            "[m] Cycle display mode (forward)",
-            "[M] Cycle display mode (backward)",
-            "[arrows] Select bit",
-            "[space] Toggle bit",
-        ]
-        .join(" "),
-    );
+    let help_text = footer_help_text(model);
     frame.render_widget(Paragraph::new(help_text).centered(), help_area);
 
     if model.show_quit_confirmation {
         render_quit_confirmation(frame);
     }
+}
+
+fn footer_help_text(model: &BitTwiddleModel) -> Line<'static> {
+    let mut controls = vec![
+        ("Tab", "Mode"),
+        ("m/M", "Display"),
+        ("c", "Clear"),
+        ("q", "Quit"),
+    ];
+
+    match model.input_mode {
+        InputMode::BitManipulation => {
+            controls.extend([("Arrows", "Select bit"), ("Space", "Toggle")]);
+        }
+        InputMode::ExpressionInput => {
+            controls.extend([
+                ("Enter", "Submit"),
+                ("Left/Right", "Move"),
+                ("Up/Down", "History"),
+            ]);
+        }
+        InputMode::HistorySelect => {
+            controls.extend([("Up/Down", "Select"), ("Enter", "Copy")]);
+        }
+    }
+
+    if model.error.is_some() {
+        controls.push(("Esc", "Dismiss"));
+    }
+
+    let key_style = Style::default().fg(Color::Yellow).bold();
+    let label_style = Style::default().dim();
+    let separator_style = Style::default().dim();
+
+    let mut spans = Vec::new();
+    for (index, (key, label)) in controls.into_iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled("  |  ", separator_style));
+        }
+
+        spans.push(Span::styled(key, key_style));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(label, label_style));
+    }
+
+    Line::from(spans)
 }
 
 fn hit_test_bit(area: Rect, column: u16, row: u16) -> Option<usize> {
