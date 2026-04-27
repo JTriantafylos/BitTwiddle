@@ -105,6 +105,8 @@ focused helpers or small methods before adding larger abstractions.
   - Left/right move selected bit by one bit.
   - Up/down move selected bit by 32 bits.
   - Space toggles the selected bit.
+- Left-clicking a bit in the bit manipulation area toggles that bit and enters
+  bit manipulation mode.
 - In history selection mode:
   - Up/down move the selected calculation history entry.
   - Enter copies the selected calculation history entry into expression input.

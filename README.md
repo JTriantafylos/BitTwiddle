@@ -66,6 +66,7 @@ When editing bits:
 
 - `Up` / `Down` / `Left` / `Right`: Select bit
 - `Space`: Toggle selected bit
+- Left-click a bit: Switch to bit manipulation mode and toggle that bit
 
 When selecting history:
 

@@ -181,6 +181,13 @@ impl BitTwiddleModel {
         None
     }
 
+    pub(crate) fn toggle_bit(&mut self, bit_index: usize) -> Option<Message> {
+        self.selected_bit_index = bit_index.clamp(0, 63);
+        self.input_mode = InputMode::BitManipulation;
+        self.sync_calculation_history_selection();
+        self.toggle_selected_bit()
+    }
+
     pub(crate) fn prev_input_mode(&mut self) -> Option<Message> {
         self.input_mode = self.input_mode.prev();
         self.sync_calculation_history_selection();
@@ -637,6 +644,30 @@ mod tests {
 
         model.toggle_selected_bit();
         assert_eq!(model.value, 0);
+    }
+
+    #[test]
+    fn toggle_bit_selects_enters_bit_mode_toggles_and_clears_error() {
+        let mut model = BitTwiddleModel {
+            error: Some("problem".to_string()),
+            input_mode: InputMode::HistorySelect,
+            calculation_history: vec![CalculationHistoryEntry {
+                operand1: 1,
+                operator: Operator::Add,
+                operand2: 2,
+                result: 3,
+            }],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        assert_eq!(model.toggle_bit(5), None);
+
+        assert_eq!(model.selected_bit_index, 5);
+        assert_eq!(model.input_mode, InputMode::BitManipulation);
+        assert_eq!(model.calculation_history_selection_index, None);
+        assert_eq!(model.value, 1 << 5);
+        assert_eq!(model.error, None);
     }
 
     #[test]

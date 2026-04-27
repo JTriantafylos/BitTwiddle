@@ -1,11 +1,18 @@
 use ratatui::{
     Frame,
-    crossterm::event::{self, Event, KeyCode, KeyEvent},
+    crossterm::{
+        event::{
+            self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, MouseButton,
+            MouseEvent, MouseEventKind,
+        },
+        execute,
+    },
     layout::{Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Clear, List, ListItem, Paragraph},
 };
+use std::io;
 
 mod expression;
 mod model;
@@ -15,6 +22,7 @@ use model::{BitTwiddleModel, DisplayMode, InputMode, RunningState};
 #[derive(Debug, PartialEq, Eq)]
 enum Message {
     KeyPressed(KeyEvent),
+    MousePressed(MouseEvent, Rect),
     ClearInput,
     SubmitExpression,
     ShiftInputCursor(isize),
@@ -23,6 +31,7 @@ enum Message {
     DeleteInputChar,
     ShiftSelectedBit(isize),
     ToggleSelectedBit,
+    ToggleBit(usize),
     PrevInputMode,
     NextInputMode,
     PrevInputHistory,
@@ -105,6 +114,7 @@ fn map_expression_input_key_to_message(key: KeyEvent) -> Option<Message> {
 fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
     match msg {
         Message::KeyPressed(key) => map_key_to_message(model, key),
+        Message::MousePressed(mouse, area) => map_mouse_to_message(model, mouse, area),
         Message::ClearInput => model.clear_input(),
         Message::SubmitExpression => model.submit_expression(),
         Message::ShiftInputCursor(offset) => model.shift_input_cursor(offset),
@@ -113,6 +123,7 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::DeleteInputChar => model.delete_input_char(),
         Message::ShiftSelectedBit(offset) => model.shift_selected_bit(offset),
         Message::ToggleSelectedBit => model.toggle_selected_bit(),
+        Message::ToggleBit(bit_index) => model.toggle_bit(bit_index),
         Message::PrevInputMode => model.prev_input_mode(),
         Message::NextInputMode => model.next_input_mode(),
         Message::PrevInputHistory => model.prev_input_history(),
@@ -129,21 +140,42 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
     }
 }
 
-fn view(model: &BitTwiddleModel, frame: &mut Frame) {
-    let vertical = Layout::vertical([
+fn map_mouse_to_message(
+    model: &BitTwiddleModel,
+    mouse: MouseEvent,
+    frame_area: Rect,
+) -> Option<Message> {
+    if model.show_quit_confirmation || mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+        return None;
+    }
+
+    hit_test_bit(bit_area(frame_area), mouse.column, mouse.row).map(Message::ToggleBit)
+}
+
+fn app_areas(area: Rect) -> [Rect; 5] {
+    Layout::vertical([
         Constraint::Length(3),
         Constraint::Length(4),
         Constraint::Length(3),
         Constraint::Min(1),
         Constraint::Length(1),
-    ]);
+    ])
+    .areas(area)
+}
+
+fn bit_area(area: Rect) -> Rect {
+    let [_, bit_area, _, _, _] = app_areas(area);
+    bit_area
+}
+
+fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     let [
         value_areas,
         bit_area,
         input_area,
         expression_history_area,
         help_area,
-    ] = vertical.areas(frame.area());
+    ] = app_areas(frame.area());
 
     let [value_area, mode_area] =
         Layout::horizontal([Constraint::Min(1), Constraint::Length(5)]).areas(value_areas);
@@ -330,6 +362,61 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     }
 }
 
+fn hit_test_bit(area: Rect, column: u16, row: u16) -> Option<usize> {
+    const BIT_LINE_WIDTH: u16 = 80;
+
+    let inner_width = area.width.saturating_sub(2);
+    let x = column.checked_sub(area.x + 1)?;
+    let y = row.checked_sub(area.y + 1)?;
+
+    if y > 1 || x >= inner_width {
+        return None;
+    }
+
+    let line_start = inner_width.saturating_sub(BIT_LINE_WIDTH) / 2;
+    let line_column = x.checked_sub(line_start)?;
+    if line_column >= BIT_LINE_WIDTH {
+        return None;
+    }
+
+    bit_index_at_line_column(if y == 0 { 1 } else { 0 }, line_column)
+}
+
+fn bit_index_at_line_column(line_num: usize, target_column: u16) -> Option<usize> {
+    const BITS_PER_LINE: usize = 32;
+    const BITS_PER_WORD: usize = 16;
+    const BITS_PER_NIBBLE: usize = 4;
+
+    let mut column = 0;
+    for word_num in (0..2).rev() {
+        let label = ((line_num * BITS_PER_LINE) + (word_num * BITS_PER_WORD)) + (BITS_PER_WORD - 1);
+        column += label.to_string().len() as u16 + 2;
+
+        for nibble_num in (0..4).rev() {
+            for nibble_index in (0..4).rev() {
+                let bit_index = (line_num * BITS_PER_LINE)
+                    + (word_num * BITS_PER_WORD)
+                    + (nibble_num * BITS_PER_NIBBLE)
+                    + nibble_index;
+                if column == target_column {
+                    return Some(bit_index);
+                }
+
+                column += 1;
+                column += if nibble_index == 0 {
+                    if nibble_num == 0 { 0 } else { 2 }
+                } else {
+                    1
+                };
+            }
+        }
+
+        column += 2;
+    }
+
+    None
+}
+
 fn render_quit_confirmation(frame: &mut Frame) {
     let area = centered_rect(49, 5, frame.area());
     let dialog = Paragraph::new(Text::from(vec![
@@ -360,25 +447,27 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     }
 }
 
-fn handle_event() -> Result<Option<Message>, std::io::Error> {
-    if let Event::Key(key) = event::read()? {
-        Ok(Some(Message::KeyPressed(key)))
-    } else {
-        Ok(None)
+fn handle_event(frame_area: Rect) -> Result<Option<Message>, io::Error> {
+    match event::read()? {
+        Event::Key(key) => Ok(Some(Message::KeyPressed(key))),
+        Event::Mouse(mouse) => Ok(Some(Message::MousePressed(mouse, frame_area))),
+        _ => Ok(None),
     }
 }
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> Result<(), io::Error> {
     let mut terminal = ratatui::init();
     let result = (|| {
+        execute!(io::stdout(), EnableMouseCapture)?;
         let mut model: BitTwiddleModel = BitTwiddleModel::default();
 
         while model.running_state != RunningState::Done {
             // Render the current view
             terminal.draw(|f| view(&model, f))?;
+            let frame_area = terminal.size()?.into();
 
             // Handle events and map to a Message
-            let mut current_msg = handle_event()?;
+            let mut current_msg = handle_event(frame_area)?;
 
             // Process updates as long as they return a non-None message
             while current_msg.is_some() {
@@ -389,8 +478,9 @@ fn main() -> Result<(), std::io::Error> {
         Ok(())
     })();
 
+    let cleanup_result = execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
-    result
+    result.and(cleanup_result)
 }
 
 #[cfg(test)]
@@ -400,6 +490,15 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn left_click(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
     }
 
     #[test]
@@ -463,6 +562,81 @@ mod tests {
         assert_eq!(
             map_key_to_message(&model, key(KeyCode::Enter)),
             Some(Message::CopySelectedCalculationHistory)
+        );
+    }
+
+    #[test]
+    fn bit_hit_test_maps_visible_top_row_bits() {
+        let area = Rect::new(0, 0, 82, 4);
+
+        assert_eq!(hit_test_bit(area, 5, 1), Some(63));
+        assert_eq!(hit_test_bit(area, 7, 1), Some(62));
+        assert_eq!(hit_test_bit(area, 11, 1), Some(60));
+        assert_eq!(hit_test_bit(area, 14, 1), Some(59));
+        assert_eq!(hit_test_bit(area, 78, 1), Some(32));
+    }
+
+    #[test]
+    fn bit_hit_test_maps_visible_bottom_row_bits() {
+        let area = Rect::new(0, 0, 82, 4);
+
+        assert_eq!(hit_test_bit(area, 5, 2), Some(31));
+        assert_eq!(hit_test_bit(area, 7, 2), Some(30));
+        assert_eq!(hit_test_bit(area, 11, 2), Some(28));
+        assert_eq!(hit_test_bit(area, 14, 2), Some(27));
+        assert_eq!(hit_test_bit(area, 78, 2), Some(0));
+    }
+
+    #[test]
+    fn bit_hit_test_ignores_labels_separators_borders_and_outside_area() {
+        let area = Rect::new(0, 0, 82, 4);
+
+        assert_eq!(hit_test_bit(area, 0, 1), None);
+        assert_eq!(hit_test_bit(area, 1, 1), None);
+        assert_eq!(hit_test_bit(area, 2, 1), None);
+        assert_eq!(hit_test_bit(area, 3, 1), None);
+        assert_eq!(hit_test_bit(area, 6, 1), None);
+        assert_eq!(hit_test_bit(area, 82, 1), None);
+        assert_eq!(hit_test_bit(area, 5, 0), None);
+        assert_eq!(hit_test_bit(area, 5, 3), None);
+    }
+
+    #[test]
+    fn left_click_on_bit_maps_to_toggle_bit() {
+        let model = BitTwiddleModel::default();
+        let frame_area = Rect::new(0, 0, 82, 12);
+
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(5, 4), frame_area),
+            Some(Message::ToggleBit(63))
+        );
+    }
+
+    #[test]
+    fn mouse_mapping_ignores_non_left_down_and_quit_confirmation() {
+        let frame_area = Rect::new(0, 0, 82, 12);
+        let model = BitTwiddleModel::default();
+        let confirming_quit = BitTwiddleModel {
+            show_quit_confirmation: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            map_mouse_to_message(
+                &model,
+                MouseEvent {
+                    kind: MouseEventKind::Up(MouseButton::Left),
+                    column: 5,
+                    row: 4,
+                    modifiers: KeyModifiers::NONE,
+                },
+                frame_area,
+            ),
+            None
+        );
+        assert_eq!(
+            map_mouse_to_message(&confirming_quit, left_click(5, 4), frame_area),
+            None
         );
     }
 }
