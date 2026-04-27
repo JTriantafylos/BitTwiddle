@@ -5,7 +5,9 @@ Guidance for coding agents working on BitTwiddle.
 ## Project Overview
 
 BitTwiddle is a small Rust terminal UI for inspecting and manipulating a `u64`.
-It is implemented as a Ratatui app in `src/main.rs`.
+It is implemented as a Ratatui app with the event loop and rendering in
+`src/main.rs`, model state and state transitions in `src/model.rs`, and
+expression parsing/computation in `src/expression.rs`.
 
 Core behavior:
 
@@ -22,10 +24,14 @@ Core behavior:
 ## Repository Layout
 
 - `Cargo.toml`: package metadata and dependencies.
-- `src/main.rs`: all current application logic, rendering, event handling, and
-  model state.
+- `src/main.rs`: application entry point, terminal event mapping, update
+  dispatch, and rendering.
+- `src/model.rs`: model state, state transitions, input/history behavior, and
+  display/history formatting helpers.
+- `src/expression.rs`: expression parsing, operators, and computation logic.
 
-There is no library crate yet and no current test suite.
+There is no library crate yet. Unit tests currently live alongside the binary
+modules.
 
 ## Commands
 
@@ -33,8 +39,7 @@ Use these from the repository root:
 
 - `cargo fmt`: format Rust code.
 - `cargo check`: fast compile/type check.
-- `cargo test`: run tests. This currently reports 0 tests, but it is still the
-  right command once tests are added.
+- `cargo test`: run the unit test suite.
 - `cargo run`: launch the TUI locally.
 
 Run `cargo fmt` and `cargo check` after code changes. Run `cargo test` when
@@ -60,6 +65,10 @@ focused helpers or small methods before adding larger abstractions.
 
 - Keep changes narrow. This project is intentionally compact, and broad rewrites
   make behavior harder to verify.
+- Keep documentation current when changing behavior, commands, dependencies,
+  architecture, or user-facing workflows. Update `README.md`, `AGENTS.md`, and
+  any other relevant docs in the same change when they would otherwise become
+  stale.
 - Prefer named structs or helper functions when they remove tuple ambiguity or
   duplicated formatting/rendering logic.
 - Keep parser and computation behavior explicit. Do not silently change numeric
@@ -82,7 +91,10 @@ focused helpers or small methods before adding larger abstractions.
 - `m` and `M` cycle display modes forward and backward.
 - `c` clears the current value and error.
 - `Esc` dismisses errors.
-- `q` quits.
+- `q` opens quit confirmation.
+- In quit confirmation:
+  - `y` and `Y` quit.
+  - Any other key cancels quit confirmation.
 - In expression input mode:
   - `Enter` submits the expression.
   - Left/right move the input cursor.
@@ -93,6 +105,9 @@ focused helpers or small methods before adding larger abstractions.
   - Left/right move selected bit by one bit.
   - Up/down move selected bit by 32 bits.
   - Space toggles the selected bit.
+- In history selection mode:
+  - Up/down move the selected calculation history entry.
+  - Enter copies the selected calculation history entry into expression input.
 
 ## Testing Priorities
 
