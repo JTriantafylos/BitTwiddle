@@ -2,8 +2,8 @@ use ratatui::{
     Frame,
     crossterm::{
         event::{
-            self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, MouseButton,
-            MouseEvent, MouseEventKind,
+            self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+            MouseButton, MouseEvent, MouseEventKind,
         },
         execute,
     },
@@ -62,7 +62,7 @@ fn map_key_to_message(model: &BitTwiddleModel, key: KeyEvent) -> Option<Message>
         KeyCode::Tab => Some(Message::NextInputMode),
         KeyCode::Char('M') => Some(Message::PrevDisplayMode),
         KeyCode::Char('m') => Some(Message::NextDisplayMode),
-        KeyCode::Char('c') => Some(Message::ClearInput),
+        KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => Some(Message::ClearInput),
         KeyCode::Char('q') => Some(Message::RequestQuit),
         KeyCode::Esc => Some(Message::DismissError),
         _ => map_mode_key_to_message(&model.input_mode, key),
@@ -373,7 +373,7 @@ fn footer_help_text(model: &BitTwiddleModel) -> Line<'static> {
     let mut controls = vec![
         ("Tab", "Mode"),
         ("m/M", "Display"),
-        ("c", "Clear"),
+        ("Ctrl+C", "Clear"),
         ("q", "Quit"),
     ];
 
@@ -577,6 +577,10 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
+    fn ctrl_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
     fn left_click(column: u16, row: u16) -> MouseEvent {
         MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -603,6 +607,59 @@ mod tests {
             map_key_to_message(&model, key(KeyCode::Char('q'))),
             Some(Message::RequestQuit)
         );
+    }
+
+    #[test]
+    fn ctrl_c_clears_input() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            map_key_to_message(&model, ctrl_key(KeyCode::Char('c'))),
+            Some(Message::ClearInput)
+        );
+    }
+
+    #[test]
+    fn plain_c_is_expression_input_text() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('c'))),
+            Some(Message::InsertInputChar('c'))
+        );
+    }
+
+    #[test]
+    fn plain_c_does_not_clear_outside_expression_input() {
+        let bit_model = BitTwiddleModel {
+            input_mode: InputMode::BitManipulation,
+            ..Default::default()
+        };
+        let history_model = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            map_key_to_message(&bit_model, key(KeyCode::Char('c'))),
+            None
+        );
+        assert_eq!(
+            map_key_to_message(&history_model, key(KeyCode::Char('c'))),
+            None
+        );
+    }
+
+    #[test]
+    fn lowercase_hex_c_can_be_entered_character_by_character() {
+        let model = BitTwiddleModel::default();
+
+        for c in "0xc + 1".chars() {
+            assert_eq!(
+                map_key_to_message(&model, key(KeyCode::Char(c))),
+                Some(Message::InsertInputChar(c))
+            );
+        }
     }
 
     #[test]

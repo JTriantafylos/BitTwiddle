@@ -58,7 +58,7 @@ the current calculator value as the first operand:
 
 - `Tab` / `Shift+Tab`: Switch between bit manipulation, expression input, and history selection
 - `m` / `M`: Cycle display mode forward or backward
-- `c`: Clear the current value
+- `Ctrl+C`: Clear the current value
 - `Esc`: Dismiss an error
 - `q`: Quit
 - Left-click the input box: Switch to expression input mode and move the cursor
