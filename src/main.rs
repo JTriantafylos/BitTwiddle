@@ -42,8 +42,7 @@ fn map_key_to_message(model: &BitTwiddleModel, key: KeyEvent) -> Option<Message>
     if model.show_quit_confirmation {
         return match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => Some(Message::ConfirmQuit),
-            KeyCode::Char('n') | KeyCode::Char('N') => Some(Message::CancelQuit),
-            _ => None,
+            _ => Some(Message::CancelQuit),
         };
     }
 
@@ -332,11 +331,11 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
 }
 
 fn render_quit_confirmation(frame: &mut Frame) {
-    let area = centered_rect(44, 5, frame.area());
+    let area = centered_rect(49, 5, frame.area());
     let dialog = Paragraph::new(Text::from(vec![
         Line::from("Quit BitTwiddle?"),
         Line::from(""),
-        Line::from("Press Y to quit or N to continue."),
+        Line::from("Press Y to quit or any other key to continue."),
     ]))
     .block(
         Block::bordered()
@@ -436,7 +435,14 @@ mod tests {
             map_key_to_message(&model, key(KeyCode::Char('N'))),
             Some(Message::CancelQuit)
         );
-        assert_eq!(map_key_to_message(&model, key(KeyCode::Char('q'))), None);
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('q'))),
+            Some(Message::CancelQuit)
+        );
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Esc)),
+            Some(Message::CancelQuit)
+        );
     }
 
     #[test]
