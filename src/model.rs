@@ -1,6 +1,6 @@
 use crate::{
     Message,
-    expression::{ParsedExpression, compute_expr, parse_expr},
+    expression::{IntegerWidth, ParsedExpression, compute_expr, parse_expr},
 };
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -74,6 +74,7 @@ pub(crate) struct BitTwiddleModel {
     pub(crate) show_quit_confirmation: bool,
     pub(crate) value: u64,
     pub(crate) error: Option<String>,
+    pub(crate) integer_width: IntegerWidth,
     pub(crate) display_mode: DisplayMode,
     pub(crate) input_mode: InputMode,
     pub(crate) expression_input_text: String,
@@ -93,10 +94,14 @@ impl BitTwiddleModel {
     }
 
     pub(crate) fn submit_expression(&mut self) -> Option<Message> {
-        match parse_expr(self.value, &self.expression_input_text) {
-            Ok(expression) => match compute_expr(expression) {
+        match parse_expr(
+            self.integer_width,
+            self.value & self.integer_width.mask(),
+            &self.expression_input_text,
+        ) {
+            Ok(expression) => match compute_expr(self.integer_width, expression) {
                 Ok(result) => {
-                    self.value = result;
+                    self.value = result & self.integer_width.mask();
                     self.error = None;
                     self.expression_input_history
                         .push(self.expression_input_text.clone());
@@ -156,21 +161,23 @@ impl BitTwiddleModel {
     }
 
     pub(crate) fn shift_selected_bit(&mut self, offset: isize) -> Option<Message> {
+        let max_bit_index = self.max_bit_index();
         self.selected_bit_index = self
             .selected_bit_index
             .saturating_add_signed(offset)
-            .clamp(0, 63);
+            .clamp(0, max_bit_index);
         None
     }
 
     pub(crate) fn toggle_selected_bit(&mut self) -> Option<Message> {
         self.value ^= 1_u64 << self.selected_bit_index;
+        self.value &= self.integer_width.mask();
         self.error = None;
         None
     }
 
     pub(crate) fn toggle_bit(&mut self, bit_index: usize) -> Option<Message> {
-        self.selected_bit_index = bit_index.clamp(0, 63);
+        self.selected_bit_index = bit_index.clamp(0, self.max_bit_index());
         self.input_mode = InputMode::BitManipulation;
         self.sync_calculation_history_selection();
         self.toggle_selected_bit()
@@ -227,6 +234,27 @@ impl BitTwiddleModel {
     pub(crate) fn next_display_mode(&mut self) -> Option<Message> {
         self.display_mode = self.display_mode.next();
         None
+    }
+
+    pub(crate) fn prev_integer_width(&mut self) -> Option<Message> {
+        self.set_integer_width(self.integer_width.prev());
+        None
+    }
+
+    pub(crate) fn next_integer_width(&mut self) -> Option<Message> {
+        self.set_integer_width(self.integer_width.next());
+        None
+    }
+
+    fn set_integer_width(&mut self, integer_width: IntegerWidth) {
+        self.integer_width = integer_width;
+        self.value &= self.integer_width.mask();
+        self.selected_bit_index = self.selected_bit_index.clamp(0, self.max_bit_index());
+        self.error = None;
+    }
+
+    pub(crate) fn max_bit_index(&self) -> usize {
+        self.integer_width.bits() as usize - 1
     }
 
     pub(crate) fn dismiss_error(&mut self) -> Option<Message> {
@@ -449,6 +477,7 @@ mod tests {
         assert!(!model.show_quit_confirmation);
         assert_eq!(model.value, 0);
         assert_eq!(model.error, None);
+        assert_eq!(model.integer_width, IntegerWidth::SixtyFour);
         assert_eq!(model.display_mode, DisplayMode::Decimal);
         assert_eq!(model.input_mode, InputMode::ExpressionInput);
         assert_eq!(model.expression_input_text, "");
@@ -469,6 +498,28 @@ mod tests {
         assert_eq!(DisplayMode::Decimal.next(), DisplayMode::Hex);
         assert_eq!(DisplayMode::Hex.next(), DisplayMode::Octal);
         assert_eq!(DisplayMode::Octal.next(), DisplayMode::Decimal);
+    }
+
+    #[test]
+    fn integer_width_methods_update_value_error_and_selected_bit() {
+        let mut model = BitTwiddleModel {
+            value: 0x1ff,
+            selected_bit_index: 63,
+            error: Some("problem".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(model.next_integer_width(), None);
+
+        assert_eq!(model.integer_width, IntegerWidth::Eight);
+        assert_eq!(model.value, 0xff);
+        assert_eq!(model.selected_bit_index, 7);
+        assert_eq!(model.error, None);
+
+        assert_eq!(model.prev_integer_width(), None);
+        assert_eq!(model.integer_width, IntegerWidth::SixtyFour);
+        assert_eq!(model.value, 0xff);
+        assert_eq!(model.selected_bit_index, 7);
     }
 
     #[test]
@@ -571,6 +622,27 @@ mod tests {
             vec![CalculationHistoryEntry {
                 expression: ParsedExpression::UnaryNot { operand: 5 },
                 result: !5,
+            }]
+        );
+    }
+
+    #[test]
+    fn submit_expression_uses_active_integer_width() {
+        let mut model = BitTwiddleModel {
+            integer_width: IntegerWidth::Eight,
+            expression_input_text: "~5".to_string(),
+            expression_input_cursor_index: 2,
+            ..Default::default()
+        };
+
+        model.submit_expression();
+
+        assert_eq!(model.value, 0xfa);
+        assert_eq!(
+            model.calculation_history,
+            vec![CalculationHistoryEntry {
+                expression: ParsedExpression::UnaryNot { operand: 5 },
+                result: 0xfa,
             }]
         );
     }
@@ -751,6 +823,19 @@ mod tests {
     }
 
     #[test]
+    fn shift_selected_bit_clamps_to_active_integer_width() {
+        let mut model = BitTwiddleModel {
+            integer_width: IntegerWidth::Eight,
+            selected_bit_index: 6,
+            ..Default::default()
+        };
+
+        assert_eq!(model.shift_selected_bit(32), None);
+
+        assert_eq!(model.selected_bit_index, 7);
+    }
+
+    #[test]
     fn toggle_selected_bit_flips_bit_and_clears_error() {
         let mut model = BitTwiddleModel {
             selected_bit_index: 3,
@@ -783,6 +868,20 @@ mod tests {
         assert_eq!(model.calculation_history_selection_index, None);
         assert_eq!(model.value, 1 << 5);
         assert_eq!(model.error, None);
+    }
+
+    #[test]
+    fn toggle_bit_clamps_and_masks_to_active_integer_width() {
+        let mut model = BitTwiddleModel {
+            integer_width: IntegerWidth::Eight,
+            value: 0xff,
+            ..Default::default()
+        };
+
+        assert_eq!(model.toggle_bit(63), None);
+
+        assert_eq!(model.selected_bit_index, 7);
+        assert_eq!(model.value, 0x7f);
     }
 
     #[test]

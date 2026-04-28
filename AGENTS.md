@@ -4,7 +4,8 @@ Guidance for coding agents working on BitTwiddle.
 
 ## Project Overview
 
-BitTwiddle is a small Rust terminal UI for inspecting and manipulating a `u64`.
+BitTwiddle is a small Rust terminal UI for inspecting and manipulating unsigned
+integer values in 8-bit, 16-bit, 32-bit, and 64-bit modes.
 It is implemented as a Ratatui app with the event loop and rendering in
 `src/main.rs`, model state and state transitions in `src/model.rs`, and
 expression parsing/computation in `src/expression.rs`.
@@ -20,8 +21,9 @@ Core behavior:
 - Bit range masks are supported as `literal[start:end]` or `literal[index]`;
   omitted literals use the current model value. Ranges are half-open and
   zero-based, so `[0:2]` keeps bits 0 and 1, while `[4]` keeps only bit 4.
-- Arithmetic uses `u64` wrapping behavior for add/subtract/multiply.
-- Division by zero and shifts of 64 bits or more are rejected with errors.
+- Arithmetic wraps within the active integer width for add/subtract/multiply.
+- Division by zero and shifts greater than or equal to the active integer width
+  are rejected with errors.
 - If the left operand is omitted in an expression, the current model value is
   used as operand 1.
 - The UI has expression input, bit manipulation, display mode, and calculation
@@ -95,6 +97,7 @@ focused helpers or small methods before adding larger abstractions.
 
 - `Tab` and `BackTab` cycle input modes.
 - `m` and `M` cycle display modes forward and backward.
+- `w` and `W` cycle integer width modes forward and backward.
 - `Ctrl+C` clears the current value and error.
 - `Esc` dismisses errors.
 - `q` opens quit confirmation.

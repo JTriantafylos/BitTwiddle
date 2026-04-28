@@ -3,6 +3,61 @@ use std::{fmt, sync::OnceLock};
 use regex::Regex;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegerWidth {
+    Eight,
+    Sixteen,
+    ThirtyTwo,
+    SixtyFour,
+}
+
+impl Default for IntegerWidth {
+    fn default() -> Self {
+        Self::SixtyFour
+    }
+}
+
+impl IntegerWidth {
+    pub fn bits(self) -> u32 {
+        match self {
+            Self::Eight => 8,
+            Self::Sixteen => 16,
+            Self::ThirtyTwo => 32,
+            Self::SixtyFour => 64,
+        }
+    }
+
+    pub fn mask(self) -> u64 {
+        if self.bits() == u64::BITS {
+            u64::MAX
+        } else {
+            (1_u64 << self.bits()) - 1
+        }
+    }
+
+    pub fn max_value(self) -> u64 {
+        self.mask()
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Eight => Self::SixtyFour,
+            Self::Sixteen => Self::Eight,
+            Self::ThirtyTwo => Self::Sixteen,
+            Self::SixtyFour => Self::ThirtyTwo,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Eight => Self::Sixteen,
+            Self::Sixteen => Self::ThirtyTwo,
+            Self::ThirtyTwo => Self::SixtyFour,
+            Self::SixtyFour => Self::Eight,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operator {
     Add,
     Subtract,
@@ -97,15 +152,19 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
 /// to mask `current_value`. Bit range masks accept either half-open `start:end`
 /// ranges or a single bit index, which is treated as `index:index + 1`.
 /// Returns an error for malformed expressions or operands that cannot fit in a
-/// `u64`.
-pub fn parse_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+/// `u64` or the active integer width.
+pub fn parse_expr(
+    width: IntegerWidth,
+    current_value: u64,
+    input: &str,
+) -> Result<ParsedExpression, String> {
     for parser in [
         parse_literal_expr,
         parse_binary_expr,
         parse_unary_not_expr,
         parse_bit_range_mask_expr,
     ] {
-        match parser(current_value, input) {
+        match parser(width, current_value, input) {
             Ok(expression) => return Ok(expression),
             Err(e) if is_parse_failure(&e) => {}
             Err(e) => return Err(e),
@@ -119,7 +178,11 @@ fn is_parse_failure(error: &str) -> bool {
     error == "malformed"
 }
 
-fn parse_literal_expr(_current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+fn parse_literal_expr(
+    width: IntegerWidth,
+    _current_value: u64,
+    input: &str,
+) -> Result<ParsedExpression, String> {
     static LITERAL_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = LITERAL_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
@@ -132,13 +195,17 @@ fn parse_literal_expr(_current_value: u64, input: &str) -> Result<ParsedExpressi
         .unwrap()
     });
     let caps = re.captures(input).ok_or("malformed")?;
-    let value =
-        parse_unsigned(&caps["value"]).map_err(|e| format!("Error parsing literal - {}", e))?;
+    let value = parse_width_unsigned(width, &caps["value"])
+        .map_err(|e| format!("Error parsing literal - {}", e))?;
 
     Ok(ParsedExpression::Literal { value })
 }
 
-fn parse_binary_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+fn parse_binary_expr(
+    width: IntegerWidth,
+    current_value: u64,
+    input: &str,
+) -> Result<ParsedExpression, String> {
     static BINARY_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = BINARY_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
@@ -156,12 +223,11 @@ fn parse_binary_expr(current_value: u64, input: &str) -> Result<ParsedExpression
     });
     let caps = re.captures(input).ok_or("malformed")?;
     let operand1 = match caps.name("operand1") {
-        Some(s) => {
-            parse_unsigned(s.as_str()).map_err(|e| format!("Error parsing operand 1 - {}", e))?
-        }
+        Some(s) => parse_width_unsigned(width, s.as_str())
+            .map_err(|e| format!("Error parsing operand 1 - {}", e))?,
         None => current_value,
     };
-    let operand2 = parse_unsigned(&caps["operand2"])
+    let operand2 = parse_width_unsigned(width, &caps["operand2"])
         .map_err(|e| format!("Error parsing operand 2 - {}", e))?;
     let operator = Operator::parse(&caps["operator"])
         .ok_or_else(|| format!("Unsupported operator: {}", &caps["operator"]))?;
@@ -173,7 +239,11 @@ fn parse_binary_expr(current_value: u64, input: &str) -> Result<ParsedExpression
     })
 }
 
-fn parse_unary_not_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+fn parse_unary_not_expr(
+    width: IntegerWidth,
+    current_value: u64,
+    input: &str,
+) -> Result<ParsedExpression, String> {
     static UNARY_NOT_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = UNARY_NOT_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
@@ -189,7 +259,7 @@ fn parse_unary_not_expr(current_value: u64, input: &str) -> Result<ParsedExpress
     });
     let caps = re.captures(input).ok_or("malformed")?;
     let operand = match caps.name("operand") {
-        Some(s) => parse_unsigned(s.as_str())
+        Some(s) => parse_width_unsigned(width, s.as_str())
             .map_err(|e| format!("Error parsing unary operand - {}", e))?,
         None => current_value,
     };
@@ -197,7 +267,11 @@ fn parse_unary_not_expr(current_value: u64, input: &str) -> Result<ParsedExpress
     Ok(ParsedExpression::UnaryNot { operand })
 }
 
-fn parse_bit_range_mask_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+fn parse_bit_range_mask_expr(
+    width: IntegerWidth,
+    current_value: u64,
+    input: &str,
+) -> Result<ParsedExpression, String> {
     static BIT_RANGE_MASK_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = BIT_RANGE_MASK_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
@@ -223,16 +297,16 @@ fn parse_bit_range_mask_expr(current_value: u64, input: &str) -> Result<ParsedEx
     });
     let caps = re.captures(input).ok_or("malformed")?;
     let operand = match caps.name("operand") {
-        Some(s) => parse_unsigned(s.as_str())
+        Some(s) => parse_width_unsigned(width, s.as_str())
             .map_err(|e| format!("Error parsing range operand - {}", e))?,
         None => current_value,
     };
-    let start_bit = parse_bit_range_bound(&caps["start_bit"], "start")?;
+    let start_bit = parse_bit_range_bound(width, &caps["start_bit"], "start")?;
     let end_bit = match caps.name("end_bit") {
-        Some(s) => parse_bit_range_bound(s.as_str(), "end")?,
+        Some(s) => parse_bit_range_bound(width, s.as_str(), "end")?,
         None => {
             let end_bit = start_bit + 1;
-            if end_bit > u64::BITS {
+            if end_bit > width.bits() {
                 return Err(format!("Invalid bit range end: {}", end_bit));
             }
             end_bit
@@ -248,11 +322,25 @@ fn parse_bit_range_mask_expr(current_value: u64, input: &str) -> Result<ParsedEx
     })
 }
 
-fn parse_bit_range_bound(s: &str, name: &str) -> Result<u32, String> {
+fn parse_width_unsigned(width: IntegerWidth, s: &str) -> Result<u64, String> {
+    let value = parse_unsigned(s).map_err(|e| e.to_string())?;
+    if value > width.max_value() {
+        Err(format!(
+            "value {} exceeds {}-bit maximum {}",
+            value,
+            width.bits(),
+            width.max_value()
+        ))
+    } else {
+        Ok(value)
+    }
+}
+
+fn parse_bit_range_bound(width: IntegerWidth, s: &str, name: &str) -> Result<u32, String> {
     let bound = s
         .parse::<u32>()
         .map_err(|e| format!("Error parsing bit range {} - {}", name, e))?;
-    if bound > u64::BITS {
+    if bound > width.bits() {
         return Err(format!("Invalid bit range {}: {}", name, bound));
     }
     Ok(bound)
@@ -269,26 +357,31 @@ fn validate_bit_range(start_bit: u32, end_bit: u32) -> Result<(), String> {
     }
 }
 
-pub fn compute_expr(expression: ParsedExpression) -> Result<u64, String> {
+pub fn compute_expr(width: IntegerWidth, expression: ParsedExpression) -> Result<u64, String> {
     match expression {
-        ParsedExpression::Literal { value } => Ok(value),
+        ParsedExpression::Literal { value } => Ok(value & width.mask()),
         ParsedExpression::Binary {
             operand1,
             operator,
             operand2,
-        } => compute(operand1, operand2, operator),
-        ParsedExpression::UnaryNot { operand } => Ok(!operand),
+        } => compute(width, operand1, operand2, operator),
+        ParsedExpression::UnaryNot { operand } => Ok(!operand & width.mask()),
         ParsedExpression::BitRangeMask {
             operand,
             start_bit,
             end_bit,
-        } => compute_bit_range_mask(operand, start_bit, end_bit),
+        } => compute_bit_range_mask(width, operand, start_bit, end_bit),
     }
 }
 
-fn compute_bit_range_mask(operand: u64, start_bit: u32, end_bit: u32) -> Result<u64, String> {
+fn compute_bit_range_mask(
+    width: IntegerWidth,
+    operand: u64,
+    start_bit: u32,
+    end_bit: u32,
+) -> Result<u64, String> {
     validate_bit_range(start_bit, end_bit)?;
-    if end_bit > u64::BITS {
+    if end_bit > width.bits() {
         return Err(format!("Invalid bit range end: {}", end_bit));
     }
 
@@ -303,36 +396,44 @@ fn compute_bit_range_mask(operand: u64, start_bit: u32, end_bit: u32) -> Result<
     Ok(operand & mask)
 }
 
-/// Applies a supported arithmetic, bitwise, or shift operator to two `u64` operands.
+/// Applies a supported arithmetic, bitwise, or shift operator to two operands.
 ///
-/// Addition, subtraction, and multiplication use `u64` wrapping semantics. Division
-/// returns an error when the divisor is zero. Left and right shifts return an error
-/// when the shift amount is 64 bits or greater.
-pub fn compute(operand1: u64, operand2: u64, operator: Operator) -> Result<u64, String> {
+/// Addition, subtraction, and multiplication wrap within the active integer
+/// width. Division returns an error when the divisor is zero. Left and right
+/// shifts return an error when the shift amount is greater than or equal to the
+/// active integer width.
+pub fn compute(
+    width: IntegerWidth,
+    operand1: u64,
+    operand2: u64,
+    operator: Operator,
+) -> Result<u64, String> {
+    let mask = width.mask();
     match operator {
-        Operator::Add => Ok(operand1.wrapping_add(operand2)),
-        Operator::Subtract => Ok(operand1.wrapping_sub(operand2)),
-        Operator::Multiply => Ok(operand1.wrapping_mul(operand2)),
+        Operator::Add => Ok(operand1.wrapping_add(operand2) & mask),
+        Operator::Subtract => Ok(operand1.wrapping_sub(operand2) & mask),
+        Operator::Multiply => Ok(operand1.wrapping_mul(operand2) & mask),
         Operator::Divide => operand1
             .checked_div(operand2)
+            .map(|result| result & mask)
             .ok_or("Division by zero".into()),
         Operator::ShiftLeft => {
-            if operand2 >= u64::BITS.into() {
+            if operand2 >= width.bits().into() {
                 Err(format!("Invalid left-shift: {}", operand2))
             } else {
-                Ok(operand1 << operand2 as u32)
+                Ok((operand1 << operand2 as u32) & mask)
             }
         }
         Operator::ShiftRight => {
-            if operand2 >= u64::BITS.into() {
+            if operand2 >= width.bits().into() {
                 Err(format!("Invalid right-shift: {}", operand2))
             } else {
-                Ok(operand1 >> operand2 as u32)
+                Ok((operand1 >> operand2 as u32) & mask)
             }
         }
-        Operator::BitOr => Ok(operand1 | operand2),
-        Operator::BitAnd => Ok(operand1 & operand2),
-        Operator::BitXor => Ok(operand1 ^ operand2),
+        Operator::BitOr => Ok((operand1 | operand2) & mask),
+        Operator::BitAnd => Ok((operand1 & operand2) & mask),
+        Operator::BitXor => Ok((operand1 ^ operand2) & mask),
     }
 }
 
@@ -351,6 +452,34 @@ mod tests {
 
     fn parsed_literal(value: u64) -> ParsedExpression {
         ParsedExpression::Literal { value }
+    }
+
+    fn parse_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+        super::parse_expr(IntegerWidth::SixtyFour, current_value, input)
+    }
+
+    fn compute(operand1: u64, operand2: u64, operator: Operator) -> Result<u64, String> {
+        super::compute(IntegerWidth::SixtyFour, operand1, operand2, operator)
+    }
+
+    fn compute_expr(expression: ParsedExpression) -> Result<u64, String> {
+        super::compute_expr(IntegerWidth::SixtyFour, expression)
+    }
+
+    #[test]
+    fn integer_width_helpers_report_bits_masks_and_cycle() {
+        assert_eq!(IntegerWidth::Eight.bits(), 8);
+        assert_eq!(IntegerWidth::Sixteen.bits(), 16);
+        assert_eq!(IntegerWidth::ThirtyTwo.bits(), 32);
+        assert_eq!(IntegerWidth::SixtyFour.bits(), 64);
+
+        assert_eq!(IntegerWidth::Eight.mask(), 0xff);
+        assert_eq!(IntegerWidth::Sixteen.mask(), 0xffff);
+        assert_eq!(IntegerWidth::ThirtyTwo.mask(), 0xffff_ffff);
+        assert_eq!(IntegerWidth::SixtyFour.mask(), u64::MAX);
+
+        assert_eq!(IntegerWidth::Eight.prev(), IntegerWidth::SixtyFour);
+        assert_eq!(IntegerWidth::SixtyFour.next(), IntegerWidth::Eight);
     }
 
     #[test]
@@ -707,6 +836,42 @@ mod tests {
     }
 
     #[test]
+    fn parse_expr_rejects_operands_above_active_width() {
+        assert_eq!(
+            super::parse_expr(IntegerWidth::Eight, 0, "256").unwrap_err(),
+            "Error parsing literal - value 256 exceeds 8-bit maximum 255"
+        );
+        assert_eq!(
+            super::parse_expr(IntegerWidth::Sixteen, 0, "0x10000 + 1").unwrap_err(),
+            "Error parsing operand 1 - value 65536 exceeds 16-bit maximum 65535"
+        );
+        assert_eq!(
+            super::parse_expr(IntegerWidth::ThirtyTwo, 0, "1 + 0x100000000").unwrap_err(),
+            "Error parsing operand 2 - value 4294967296 exceeds 32-bit maximum 4294967295"
+        );
+    }
+
+    #[test]
+    fn parse_expr_uses_active_width_for_bit_ranges() {
+        assert_eq!(
+            super::parse_expr(IntegerWidth::Eight, 0, "255[0:8]"),
+            Ok(ParsedExpression::BitRangeMask {
+                operand: 255,
+                start_bit: 0,
+                end_bit: 8,
+            })
+        );
+        assert_eq!(
+            super::parse_expr(IntegerWidth::Eight, 0, "255[8]").unwrap_err(),
+            "Invalid bit range end: 9"
+        );
+        assert_eq!(
+            super::parse_expr(IntegerWidth::Eight, 0, "255[0:9]").unwrap_err(),
+            "Invalid bit range end: 9"
+        );
+    }
+
+    #[test]
     fn compute_adds_subtracts_and_multiplies_with_wrapping_semantics() {
         assert_eq!(compute(40, 2, Operator::Add), Ok(42));
         assert_eq!(compute(u64::MAX, 1, Operator::Add), Ok(0));
@@ -761,6 +926,45 @@ mod tests {
         assert_eq!(compute(0b1010, 0b1100, Operator::BitOr), Ok(0b1110));
         assert_eq!(compute(0b1010, 0b1100, Operator::BitAnd), Ok(0b1000));
         assert_eq!(compute(0b1010, 0b1100, Operator::BitXor), Ok(0b0110));
+    }
+
+    #[test]
+    fn compute_uses_active_width_for_wrapping_and_masks() {
+        assert_eq!(
+            super::compute(IntegerWidth::Eight, 255, 1, Operator::Add),
+            Ok(0)
+        );
+        assert_eq!(
+            super::compute(IntegerWidth::Sixteen, 0, 1, Operator::Subtract),
+            Ok(0xffff)
+        );
+        assert_eq!(
+            super::compute(IntegerWidth::ThirtyTwo, 0xffff_ffff, 2, Operator::Multiply),
+            Ok(0xffff_fffe)
+        );
+        assert_eq!(
+            super::compute_expr(
+                IntegerWidth::Eight,
+                ParsedExpression::UnaryNot { operand: 5 }
+            ),
+            Ok(0xfa)
+        );
+    }
+
+    #[test]
+    fn compute_uses_active_width_for_shift_limits() {
+        assert_eq!(
+            super::compute(IntegerWidth::Eight, 1, 7, Operator::ShiftLeft),
+            Ok(0x80)
+        );
+        assert_eq!(
+            super::compute(IntegerWidth::Eight, 1, 8, Operator::ShiftLeft).unwrap_err(),
+            "Invalid left-shift: 8"
+        );
+        assert_eq!(
+            super::compute(IntegerWidth::Sixteen, 1, 16, Operator::ShiftRight).unwrap_err(),
+            "Invalid right-shift: 16"
+        );
     }
 
     #[test]

@@ -86,10 +86,16 @@ bits 0 and 1 and clears every other bit. A single index keeps only that bit:
 [4]
 ```
 
+BitTwiddle supports 8-bit, 16-bit, 32-bit, and 64-bit unsigned modes. The active
+width controls arithmetic wrapping, bitwise NOT, shift limits, bit range bounds,
+the visible bit grid, and the stored value. Switching to a narrower width masks
+away higher bits immediately.
+
 ## Controls
 
 - `Tab` / `Shift+Tab`: Switch between bit manipulation, expression input, and history selection
 - `m` / `M`: Cycle display mode forward or backward
+- `w` / `W`: Cycle integer width forward or backward
 - `Ctrl+C`: Clear the current value
 - `Esc`: Dismiss an error
 - `q`: Quit
@@ -109,7 +115,7 @@ When selecting history:
 
 ## Usage Notes
 
-Calculations are done on a 64-bit unsigned value. Addition, subtraction, and
-multiplication wrap like normal low-level integer operations. Division by zero
-and shifts of 64 bits or more are shown as errors. Bit range mask end indexes
-must be no greater than 64.
+Calculations are done on the active unsigned integer width. Addition,
+subtraction, and multiplication wrap like normal low-level integer operations.
+Division by zero and shifts greater than or equal to the active width are shown
+as errors. Bit range mask end indexes must be no greater than the active width.

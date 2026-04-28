@@ -17,6 +17,7 @@ use std::io;
 mod expression;
 mod model;
 
+use expression::IntegerWidth;
 use model::{BitTwiddleModel, DisplayMode, InputMode, RunningState};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -43,6 +44,8 @@ enum Message {
     CopySelectedCalculationHistory,
     PrevDisplayMode,
     NextDisplayMode,
+    PrevIntegerWidth,
+    NextIntegerWidth,
     DismissError,
     RequestQuit,
     CancelQuit,
@@ -62,6 +65,8 @@ fn map_key_to_message(model: &BitTwiddleModel, key: KeyEvent) -> Option<Message>
         KeyCode::Tab => Some(Message::NextInputMode),
         KeyCode::Char('M') => Some(Message::PrevDisplayMode),
         KeyCode::Char('m') => Some(Message::NextDisplayMode),
+        KeyCode::Char('W') => Some(Message::PrevIntegerWidth),
+        KeyCode::Char('w') => Some(Message::NextIntegerWidth),
         KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => Some(Message::ClearInput),
         KeyCode::Char('q') => Some(Message::RequestQuit),
         KeyCode::Esc => Some(Message::DismissError),
@@ -139,6 +144,8 @@ fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::CopySelectedCalculationHistory => model.copy_selected_calculation_history(),
         Message::PrevDisplayMode => model.prev_display_mode(),
         Message::NextDisplayMode => model.next_display_mode(),
+        Message::PrevIntegerWidth => model.prev_integer_width(),
+        Message::NextIntegerWidth => model.next_integer_width(),
         Message::DismissError => model.dismiss_error(),
         Message::RequestQuit => model.request_quit(),
         Message::CancelQuit => model.cancel_quit(),
@@ -157,7 +164,7 @@ fn map_mouse_to_message(
 
     let [_, bit_area, input_area, expression_history_area, _] = app_areas(frame_area);
 
-    hit_test_bit(bit_area, mouse.column, mouse.row)
+    hit_test_bit(model.integer_width, bit_area, mouse.column, mouse.row)
         .map(Message::ToggleBit)
         .or_else(|| {
             hit_test_input(input_area, mouse.column, mouse.row).map(Message::FocusExpressionInput)
@@ -193,8 +200,12 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
         help_area,
     ] = app_areas(frame.area());
 
-    let [value_area, mode_area] =
-        Layout::horizontal([Constraint::Min(1), Constraint::Length(5)]).areas(value_areas);
+    let [value_area, mode_area, width_area] = Layout::horizontal([
+        Constraint::Min(1),
+        Constraint::Length(5),
+        Constraint::Length(14),
+    ])
+    .areas(value_areas);
 
     let val_text = Text::from(match &model.error {
         Some(err) => err.to_string(),
@@ -238,6 +249,18 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     .block(Block::bordered());
     frame.render_widget(mode_widget, mode_area);
 
+    let width_indicator = Paragraph::new(Line::from(vec![
+        width_span(model.integer_width, IntegerWidth::Eight, "8"),
+        Span::raw(" "),
+        width_span(model.integer_width, IntegerWidth::Sixteen, "16"),
+        Span::raw(" "),
+        width_span(model.integer_width, IntegerWidth::ThirtyTwo, "32"),
+        Span::raw(" "),
+        width_span(model.integer_width, IntegerWidth::SixtyFour, "64"),
+    ]))
+    .block(Block::bordered());
+    frame.render_widget(width_indicator, width_area);
+
     let input = Paragraph::new(model.expression_input_text.as_str()).block(
         Block::bordered()
             .border_style(match model.input_mode {
@@ -257,67 +280,19 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
         ))
     }
 
-    const BITS_PER_LINE: usize = 32;
-    const BITS_PER_WORD: usize = 16;
-    const BITS_PER_NIBBLE: usize = 4;
     let display_value = model.value;
     let bit_manipulation_mode = model.input_mode == InputMode::BitManipulation;
     let selected_bit_index = model.selected_bit_index;
     let selected_bit_style = Style::default()
         .fg(Color::Yellow)
         .add_modifier(Modifier::REVERSED);
-    let bit_visualization_text = (0..2)
-        .rev()
-        .map(|line_num| {
-            Line::from(
-                (0..2)
-                    .rev()
-                    .flat_map(|word_num| {
-                        vec![
-                            Span::styled(
-                                (((line_num * BITS_PER_LINE) + (word_num * BITS_PER_WORD))
-                                    + (BITS_PER_WORD - 1))
-                                    .to_string(),
-                                Style::default().bold(),
-                            ),
-                            Span::raw("  "),
-                        ]
-                        .into_iter()
-                        .chain((0..4).rev().flat_map(move |nibble_num| {
-                            (0..4)
-                                .rev()
-                                .flat_map(move |nibble_index| {
-                                    let bit_index = (line_num * BITS_PER_LINE)
-                                        + (word_num * BITS_PER_WORD)
-                                        + (nibble_num * BITS_PER_NIBBLE)
-                                        + nibble_index;
-                                    let bit = if (display_value >> bit_index) & 1 == 1 {
-                                        "1"
-                                    } else {
-                                        "0"
-                                    };
-                                    let bit_style = if bit_manipulation_mode
-                                        && bit_index == selected_bit_index
-                                    {
-                                        selected_bit_style
-                                    } else {
-                                        Style::default()
-                                    };
-                                    let separator = if nibble_index == 0 {
-                                        if nibble_num == 0 { "" } else { "  " }
-                                    } else {
-                                        " "
-                                    };
-                                    [Span::styled(bit, bit_style), Span::raw(separator)]
-                                })
-                                .collect::<Vec<Span>>()
-                        }))
-                        .chain([Span::raw("  ")])
-                    })
-                    .collect::<Vec<Span>>(),
-            )
-        })
-        .collect::<Vec<Line>>();
+    let bit_visualization_text = bit_visualization_lines(
+        model.integer_width,
+        display_value,
+        bit_manipulation_mode,
+        selected_bit_index,
+        selected_bit_style,
+    );
 
     let mut bit_visualization_block = Block::bordered()
         .border_style(match model.input_mode {
@@ -373,6 +348,7 @@ fn footer_help_text(model: &BitTwiddleModel) -> Line<'static> {
     let mut controls = vec![
         ("Tab", "Mode"),
         ("m/M", "Display"),
+        ("w/W", "Width"),
         ("Ctrl+C", "Clear"),
         ("q", "Quit"),
     ];
@@ -415,24 +391,104 @@ fn footer_help_text(model: &BitTwiddleModel) -> Line<'static> {
     Line::from(spans)
 }
 
-fn hit_test_bit(area: Rect, column: u16, row: u16) -> Option<usize> {
-    const BIT_LINE_WIDTH: u16 = 80;
+fn width_span<'a>(
+    current_width: IntegerWidth,
+    target_width: IntegerWidth,
+    label: &'a str,
+) -> Span<'a> {
+    Span::styled(
+        label,
+        if current_width == target_width {
+            Style::default().underlined()
+        } else {
+            Style::default().dim()
+        },
+    )
+}
 
+fn bit_visualization_lines(
+    width: IntegerWidth,
+    display_value: u64,
+    bit_manipulation_mode: bool,
+    selected_bit_index: usize,
+    selected_bit_style: Style,
+) -> Vec<Line<'static>> {
+    (0..bit_line_count(width))
+        .rev()
+        .map(|line_num| {
+            Line::from(
+                bit_words_for_line(width, line_num)
+                    .rev()
+                    .flat_map(|(word_start, word_end)| {
+                        let mut spans = vec![
+                            Span::styled((word_end - 1).to_string(), Style::default().bold()),
+                            Span::raw("  "),
+                        ];
+
+                        for bit_index in (word_start..word_end).rev() {
+                            let bit = if (display_value >> bit_index) & 1 == 1 {
+                                "1"
+                            } else {
+                                "0"
+                            };
+                            let bit_style = if bit_manipulation_mode
+                                && bit_index as usize == selected_bit_index
+                            {
+                                selected_bit_style
+                            } else {
+                                Style::default()
+                            };
+                            spans.push(Span::styled(bit, bit_style));
+
+                            if bit_index > word_start {
+                                spans.push(Span::raw(if bit_index % 4 == 0 { "  " } else { " " }));
+                            }
+                        }
+
+                        spans.push(Span::raw("  "));
+                        spans
+                    })
+                    .collect::<Vec<Span>>(),
+            )
+        })
+        .collect()
+}
+
+fn bit_line_count(width: IntegerWidth) -> usize {
+    width.bits().div_ceil(32) as usize
+}
+
+fn bit_words_for_line(
+    width: IntegerWidth,
+    line_num: usize,
+) -> impl DoubleEndedIterator<Item = (u32, u32)> {
+    let line_start = line_num as u32 * 32;
+    let line_end = ((line_num as u32 + 1) * 32).min(width.bits());
+    (line_start..line_end).step_by(16).map(move |word_start| {
+        let word_end = (word_start + 16).min(line_end);
+        (word_start, word_end)
+    })
+}
+
+fn hit_test_bit(width: IntegerWidth, area: Rect, column: u16, row: u16) -> Option<usize> {
     let inner_width = area.width.saturating_sub(2);
     let x = column.checked_sub(area.x + 1)?;
     let y = row.checked_sub(area.y + 1)?;
 
-    if y > 1 || x >= inner_width {
+    let line_count = bit_line_count(width);
+    if y as usize >= line_count || x >= inner_width {
         return None;
     }
 
-    let line_start = inner_width.saturating_sub(BIT_LINE_WIDTH) / 2;
+    let line_num = line_count - 1 - y as usize;
+    let line_width = bit_line_width(width, line_num);
+    let line_start = inner_width.saturating_sub(line_width) / 2;
     let line_column = x.checked_sub(line_start)?;
-    if line_column >= BIT_LINE_WIDTH {
+    if line_column >= line_width {
         return None;
     }
 
-    bit_index_at_line_column(if y == 0 { 1 } else { 0 }, line_column)
+    bit_index_at_line_column(width, line_num, line_column)
 }
 
 fn hit_test_input(area: Rect, column: u16, row: u16) -> Option<usize> {
@@ -466,32 +522,38 @@ fn hit_test_history(
     Some((index < history_len).then_some(index))
 }
 
-fn bit_index_at_line_column(line_num: usize, target_column: u16) -> Option<usize> {
-    const BITS_PER_LINE: usize = 32;
-    const BITS_PER_WORD: usize = 16;
-    const BITS_PER_NIBBLE: usize = 4;
+fn bit_line_width(width: IntegerWidth, line_num: usize) -> u16 {
+    let mut line_width = 0;
+    for (word_start, word_end) in bit_words_for_line(width, line_num) {
+        line_width += (word_end - 1).to_string().len() as u16 + 2;
+        for bit_index in (word_start..word_end).rev() {
+            line_width += 1;
+            if bit_index > word_start {
+                line_width += if bit_index % 4 == 0 { 2 } else { 1 };
+            }
+        }
+        line_width += 2;
+    }
+    line_width
+}
 
+fn bit_index_at_line_column(
+    width: IntegerWidth,
+    line_num: usize,
+    target_column: u16,
+) -> Option<usize> {
     let mut column = 0;
-    for word_num in (0..2).rev() {
-        let label = ((line_num * BITS_PER_LINE) + (word_num * BITS_PER_WORD)) + (BITS_PER_WORD - 1);
-        column += label.to_string().len() as u16 + 2;
+    for (word_start, word_end) in bit_words_for_line(width, line_num).rev() {
+        column += (word_end - 1).to_string().len() as u16 + 2;
 
-        for nibble_num in (0..4).rev() {
-            for nibble_index in (0..4).rev() {
-                let bit_index = (line_num * BITS_PER_LINE)
-                    + (word_num * BITS_PER_WORD)
-                    + (nibble_num * BITS_PER_NIBBLE)
-                    + nibble_index;
-                if column == target_column {
-                    return Some(bit_index);
-                }
+        for bit_index in (word_start..word_end).rev() {
+            if column == target_column {
+                return Some(bit_index as usize);
+            }
 
-                column += 1;
-                column += if nibble_index == 0 {
-                    if nibble_num == 0 { 0 } else { 2 }
-                } else {
-                    1
-                };
+            column += 1;
+            if bit_index > word_start {
+                column += if bit_index % 4 == 0 { 2 } else { 1 };
             }
         }
 
@@ -590,6 +652,10 @@ mod tests {
         }
     }
 
+    fn hit_test_bit(area: Rect, column: u16, row: u16) -> Option<usize> {
+        super::hit_test_bit(IntegerWidth::SixtyFour, area, column, row)
+    }
+
     fn history_entry(value: u64) -> model::CalculationHistoryEntry {
         model::CalculationHistoryEntry {
             expression: ParsedExpression::Binary {
@@ -618,6 +684,20 @@ mod tests {
         assert_eq!(
             map_key_to_message(&model, ctrl_key(KeyCode::Char('c'))),
             Some(Message::ClearInput)
+        );
+    }
+
+    #[test]
+    fn w_and_uppercase_w_cycle_integer_width() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('w'))),
+            Some(Message::NextIntegerWidth)
+        );
+        assert_eq!(
+            map_key_to_message(&model, key(KeyCode::Char('W'))),
+            Some(Message::PrevIntegerWidth)
         );
     }
 
@@ -752,6 +832,22 @@ mod tests {
         assert_eq!(hit_test_bit(area, 82, 1), None);
         assert_eq!(hit_test_bit(area, 5, 0), None);
         assert_eq!(hit_test_bit(area, 5, 3), None);
+    }
+
+    #[test]
+    fn bit_hit_test_uses_active_integer_width() {
+        let area = Rect::new(0, 0, 82, 4);
+
+        assert_eq!(
+            super::hit_test_bit(IntegerWidth::Eight, area, 33, 1),
+            Some(7)
+        );
+        assert_eq!(
+            super::hit_test_bit(IntegerWidth::Eight, area, 48, 1),
+            Some(0)
+        );
+        assert_eq!(super::hit_test_bit(IntegerWidth::Eight, area, 5, 1), None);
+        assert_eq!(super::hit_test_bit(IntegerWidth::Eight, area, 34, 2), None);
     }
 
     #[test]
