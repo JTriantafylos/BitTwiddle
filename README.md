@@ -44,6 +44,13 @@ Supported operators:
 - `^`: Binary XOR
 - `~`: Bitwise NOT
 
+Expressions currently use one operation at a time: one binary operation, one
+unary NOT operation, or one bit range mask. Unary NOT and bit range masks are
+standalone expression forms, not higher-precedence operators inside larger
+expressions. Inputs such as `1 + 2 * 3`, `~1 + 2`, `33[0:2] | 4`, and
+parenthesized expressions are rejected. Submit each step separately, using the
+current value as the implicit operand when that is useful.
+
 Examples:
 
 ```text
