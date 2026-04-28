@@ -14,6 +14,7 @@ pub(crate) enum RunningState {
 pub(crate) enum DisplayMode {
     #[default]
     Decimal,
+    Signed,
     Hex,
     Octal,
 }
@@ -22,14 +23,16 @@ impl DisplayMode {
     fn prev(&self) -> Self {
         match *self {
             DisplayMode::Decimal => DisplayMode::Octal,
-            DisplayMode::Hex => DisplayMode::Decimal,
+            DisplayMode::Signed => DisplayMode::Decimal,
+            DisplayMode::Hex => DisplayMode::Signed,
             DisplayMode::Octal => DisplayMode::Hex,
         }
     }
 
     fn next(&self) -> Self {
         match *self {
-            DisplayMode::Decimal => DisplayMode::Hex,
+            DisplayMode::Decimal => DisplayMode::Signed,
+            DisplayMode::Signed => DisplayMode::Hex,
             DisplayMode::Hex => DisplayMode::Octal,
             DisplayMode::Octal => DisplayMode::Decimal,
         }
@@ -411,8 +414,23 @@ impl BitTwiddleModel {
     fn format_operand(&self, operand: u64) -> String {
         match self.display_mode {
             DisplayMode::Decimal => operand.to_string(),
+            DisplayMode::Signed => operand.to_string(),
             DisplayMode::Hex => format!("{:#X}", operand),
             DisplayMode::Octal => format!("{:#o}", operand),
+        }
+    }
+
+    pub(crate) fn format_value_readout(&self) -> String {
+        self.format_display_value(self.value)
+    }
+
+    fn format_display_value(&self, value: u64) -> String {
+        let value = value & self.integer_width.mask();
+        match self.display_mode {
+            DisplayMode::Signed => self.signed_interpretation(value).to_string(),
+            DisplayMode::Decimal => value.to_string(),
+            DisplayMode::Hex => format!("{:#X}", value),
+            DisplayMode::Octal => format!("{:#o}", value),
         }
     }
 
@@ -420,22 +438,20 @@ impl BitTwiddleModel {
         &self,
         entry: &CalculationHistoryEntry,
     ) -> String {
-        match self.display_mode {
-            DisplayMode::Decimal => format!(
-                "{} = {}",
-                self.format_calculation_history_expression(entry),
-                entry.result
-            ),
-            DisplayMode::Hex => format!(
-                "{} = {:#X}",
-                self.format_calculation_history_expression(entry),
-                entry.result
-            ),
-            DisplayMode::Octal => format!(
-                "{} = {:#o}",
-                self.format_calculation_history_expression(entry),
-                entry.result
-            ),
+        format!(
+            "{} = {}",
+            self.format_calculation_history_expression(entry),
+            self.format_display_value(entry.result)
+        )
+    }
+
+    fn signed_interpretation(&self, value: u64) -> i128 {
+        let value = (value & self.integer_width.mask()) as i128;
+        let sign_bit = 1_i128 << (self.integer_width.bits() - 1);
+        if value & sign_bit == 0 {
+            value
+        } else {
+            value - (1_i128 << self.integer_width.bits())
         }
     }
 }
@@ -492,10 +508,12 @@ mod tests {
     #[test]
     fn display_mode_prev_and_next_cycle_through_modes() {
         assert_eq!(DisplayMode::Decimal.prev(), DisplayMode::Octal);
-        assert_eq!(DisplayMode::Hex.prev(), DisplayMode::Decimal);
+        assert_eq!(DisplayMode::Signed.prev(), DisplayMode::Decimal);
+        assert_eq!(DisplayMode::Hex.prev(), DisplayMode::Signed);
         assert_eq!(DisplayMode::Octal.prev(), DisplayMode::Hex);
 
-        assert_eq!(DisplayMode::Decimal.next(), DisplayMode::Hex);
+        assert_eq!(DisplayMode::Decimal.next(), DisplayMode::Signed);
+        assert_eq!(DisplayMode::Signed.next(), DisplayMode::Hex);
         assert_eq!(DisplayMode::Hex.next(), DisplayMode::Octal);
         assert_eq!(DisplayMode::Octal.next(), DisplayMode::Decimal);
     }
@@ -520,6 +538,28 @@ mod tests {
         assert_eq!(model.integer_width, IntegerWidth::SixtyFour);
         assert_eq!(model.value, 0xff);
         assert_eq!(model.selected_bit_index, 7);
+    }
+
+    #[test]
+    fn signed_value_interprets_value_using_active_width() {
+        let mut model = BitTwiddleModel {
+            integer_width: IntegerWidth::Eight,
+            value: 0xff,
+            ..Default::default()
+        };
+
+        assert_eq!(model.signed_interpretation(model.value), -1);
+
+        model.value = 0x7f;
+        assert_eq!(model.signed_interpretation(model.value), 127);
+
+        model.integer_width = IntegerWidth::Sixteen;
+        model.value = 0x8000;
+        assert_eq!(model.signed_interpretation(model.value), -32768);
+
+        model.integer_width = IntegerWidth::SixtyFour;
+        model.value = u64::MAX;
+        assert_eq!(model.signed_interpretation(model.value), -1);
     }
 
     #[test]
@@ -994,6 +1034,9 @@ mod tests {
 
         assert_eq!(model.next_display_mode(), None);
         assert_eq!(model.display_mode, DisplayMode::Decimal);
+
+        assert_eq!(model.next_display_mode(), None);
+        assert_eq!(model.display_mode, DisplayMode::Signed);
     }
 
     #[test]
@@ -1293,6 +1336,42 @@ mod tests {
         assert_eq!(
             model.format_calculation_history_entry(&entry),
             "0xA + 0x5 = 0xF"
+        );
+    }
+
+    #[test]
+    fn format_value_readout_uses_active_display_mode() {
+        let model = BitTwiddleModel {
+            display_mode: DisplayMode::Hex,
+            integer_width: IntegerWidth::Eight,
+            value: 0xff,
+            ..Default::default()
+        };
+
+        assert_eq!(model.format_value_readout(), "0xFF");
+
+        let model = BitTwiddleModel {
+            display_mode: DisplayMode::Signed,
+            integer_width: IntegerWidth::Eight,
+            value: 0xff,
+            ..Default::default()
+        };
+
+        assert_eq!(model.format_value_readout(), "-1");
+    }
+
+    #[test]
+    fn signed_history_results_keep_expressions_parseable() {
+        let model = BitTwiddleModel {
+            display_mode: DisplayMode::Signed,
+            integer_width: IntegerWidth::Eight,
+            ..Default::default()
+        };
+        let entry = binary_history_entry(254, Operator::Add, 1, 255);
+
+        assert_eq!(
+            model.format_calculation_history_entry(&entry),
+            "254 + 1 = -1"
         );
     }
 }

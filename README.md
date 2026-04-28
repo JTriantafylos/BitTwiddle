@@ -89,7 +89,8 @@ bits 0 and 1 and clears every other bit. A single index keeps only that bit:
 BitTwiddle supports 8-bit, 16-bit, 32-bit, and 64-bit unsigned modes. The active
 width controls arithmetic wrapping, bitwise NOT, shift limits, bit range bounds,
 the visible bit grid, and the stored value. Switching to a narrower width masks
-away higher bits immediately.
+away higher bits immediately. The signed display mode shows values using the
+active width's two's-complement interpretation.
 
 ## Controls
 

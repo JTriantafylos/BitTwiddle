@@ -202,18 +202,14 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
 
     let [value_area, mode_area, width_area] = Layout::horizontal([
         Constraint::Min(1),
-        Constraint::Length(5),
+        Constraint::Length(7),
         Constraint::Length(14),
     ])
     .areas(value_areas);
 
     let val_text = Text::from(match &model.error {
         Some(err) => err.to_string(),
-        None => match model.display_mode {
-            DisplayMode::Decimal => format!("{}", model.value),
-            DisplayMode::Hex => format!("{:#X}", model.value),
-            DisplayMode::Octal => format!("{:#o}", model.value),
-        },
+        None => model.format_value_readout(),
     });
     frame.render_widget(
         Paragraph::new(val_text).block(Block::bordered()).centered(),
@@ -234,6 +230,13 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
             _ => Style::default().dim(),
         },
     );
+    let signed_indicator = Span::styled(
+        "S",
+        match model.display_mode {
+            DisplayMode::Signed => Style::default().underlined(),
+            _ => Style::default().dim(),
+        },
+    );
     let oct_indicator = Span::styled(
         "O",
         match model.display_mode {
@@ -243,6 +246,7 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     );
     let mode_widget = Paragraph::new(Line::from(vec![
         dec_indicator,
+        signed_indicator,
         hex_indicator,
         oct_indicator,
     ]))
