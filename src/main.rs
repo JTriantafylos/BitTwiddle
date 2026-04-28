@@ -570,7 +570,7 @@ fn main() -> Result<(), io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::expression::Operator;
+    use crate::expression::{Operator, ParsedExpression};
     use ratatui::crossterm::event::KeyModifiers;
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -592,9 +592,11 @@ mod tests {
 
     fn history_entry(value: u64) -> model::CalculationHistoryEntry {
         model::CalculationHistoryEntry {
-            operand1: value,
-            operator: Operator::Add,
-            operand2: value,
+            expression: ParsedExpression::Binary {
+                operand1: value,
+                operator: Operator::Add,
+                operand2: value,
+            },
             result: value + value,
         }
     }

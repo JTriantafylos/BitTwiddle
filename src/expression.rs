@@ -49,10 +49,20 @@ impl fmt::Display for Operator {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ParsedExpression {
-    pub operand1: u64,
-    pub operand2: u64,
-    pub operator: Operator,
+pub enum ParsedExpression {
+    Binary {
+        operand1: u64,
+        operator: Operator,
+        operand2: u64,
+    },
+    UnaryNot {
+        operand: u64,
+    },
+    BitRangeMask {
+        operand: u64,
+        start_bit: u32,
+        end_bit: u32,
+    },
 }
 
 /// Parses an unsigned integer literal into a `u64`.
@@ -77,11 +87,34 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
 /// Parses an arithmetic or bitwise expression.
 ///
 /// Operands are unsigned integer literals accepted by [`parse_unsigned`]. When the
-/// left operand is omitted, `current_value` is used as `operand1`. Returns an error
-/// for malformed expressions or operands that cannot fit in a `u64`.
+/// left operand is omitted from a binary expression, `current_value` is used as
+/// `operand1`. Unary NOT can omit its operand to apply to `current_value`, and a
+/// bit range mask can omit its operand before `[...]` to mask `current_value`.
+/// Returns an error for malformed expressions or operands that cannot fit in a
+/// `u64`.
 pub fn parse_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
-    static EXPR_RE: OnceLock<Regex> = OnceLock::new();
-    let re = EXPR_RE.get_or_init(|| {
+    for parser in [
+        parse_binary_expr,
+        parse_unary_not_expr,
+        parse_bit_range_mask_expr,
+    ] {
+        match parser(current_value, input) {
+            Ok(expression) => return Ok(expression),
+            Err(e) if is_parse_failure(&e) => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    Err(format!("Malformed expression '{}'", input))
+}
+
+fn is_parse_failure(error: &str) -> bool {
+    error == "malformed"
+}
+
+fn parse_binary_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+    static BINARY_EXPR_RE: OnceLock<Regex> = OnceLock::new();
+    let re = BINARY_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
             r"^",                                                           // Beginning marker
             r"\s*", // Match any preceding whitespace
@@ -95,28 +128,141 @@ pub fn parse_expr(current_value: u64, input: &str) -> Result<ParsedExpression, S
         ))
         .unwrap()
     });
-    let captures = re.captures(input);
-    match captures {
-        Some(caps) => {
-            let operand1_match = caps.name("operand1");
-            let operand1: u64 = match operand1_match {
-                Some(s) => parse_unsigned(s.as_str())
-                    .map_err(|e| format!("Error parsing operand 1 - {}", e))?,
-                None => current_value,
-            };
-            let operand2: u64 = parse_unsigned(&caps["operand2"])
-                .map_err(|e| format!("Error parsing operand 2 - {}", e))?;
-            let operator = Operator::parse(&caps["operator"])
-                .ok_or_else(|| format!("Unsupported operator: {}", &caps["operator"]))?;
-
-            Ok(ParsedExpression {
-                operand1,
-                operand2,
-                operator,
-            })
+    let caps = re.captures(input).ok_or("malformed")?;
+    let operand1 = match caps.name("operand1") {
+        Some(s) => {
+            parse_unsigned(s.as_str()).map_err(|e| format!("Error parsing operand 1 - {}", e))?
         }
-        None => Err(format!("Malformed expression '{}'", input)),
+        None => current_value,
+    };
+    let operand2 = parse_unsigned(&caps["operand2"])
+        .map_err(|e| format!("Error parsing operand 2 - {}", e))?;
+    let operator = Operator::parse(&caps["operator"])
+        .ok_or_else(|| format!("Unsupported operator: {}", &caps["operator"]))?;
+
+    Ok(ParsedExpression::Binary {
+        operand1,
+        operator,
+        operand2,
+    })
+}
+
+fn parse_unary_not_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+    static UNARY_NOT_EXPR_RE: OnceLock<Regex> = OnceLock::new();
+    let re = UNARY_NOT_EXPR_RE.get_or_init(|| {
+        Regex::new(concat!(
+            r"^",
+            r"\s*",
+            r"~",
+            r"\s*",
+            r"(?<operand>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?",
+            r"\s*",
+            r"$"
+        ))
+        .unwrap()
+    });
+    let caps = re.captures(input).ok_or("malformed")?;
+    let operand = match caps.name("operand") {
+        Some(s) => parse_unsigned(s.as_str())
+            .map_err(|e| format!("Error parsing unary operand - {}", e))?,
+        None => current_value,
+    };
+
+    Ok(ParsedExpression::UnaryNot { operand })
+}
+
+fn parse_bit_range_mask_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+    static BIT_RANGE_MASK_EXPR_RE: OnceLock<Regex> = OnceLock::new();
+    let re = BIT_RANGE_MASK_EXPR_RE.get_or_init(|| {
+        Regex::new(concat!(
+            r"^",
+            r"\s*",
+            r"(?<operand>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?",
+            r"\s*",
+            r"\[",
+            r"\s*",
+            r"(?<start_bit>\d+)",
+            r"\s*",
+            r":",
+            r"\s*",
+            r"(?<end_bit>\d+)",
+            r"\s*",
+            r"\]",
+            r"\s*",
+            r"$"
+        ))
+        .unwrap()
+    });
+    let caps = re.captures(input).ok_or("malformed")?;
+    let operand = match caps.name("operand") {
+        Some(s) => parse_unsigned(s.as_str())
+            .map_err(|e| format!("Error parsing range operand - {}", e))?,
+        None => current_value,
+    };
+    let start_bit = parse_bit_range_bound(&caps["start_bit"], "start")?;
+    let end_bit = parse_bit_range_bound(&caps["end_bit"], "end")?;
+
+    validate_bit_range(start_bit, end_bit)?;
+
+    Ok(ParsedExpression::BitRangeMask {
+        operand,
+        start_bit,
+        end_bit,
+    })
+}
+
+fn parse_bit_range_bound(s: &str, name: &str) -> Result<u32, String> {
+    let bound = s
+        .parse::<u32>()
+        .map_err(|e| format!("Error parsing bit range {} - {}", name, e))?;
+    if bound > u64::BITS {
+        return Err(format!("Invalid bit range {}: {}", name, bound));
     }
+    Ok(bound)
+}
+
+fn validate_bit_range(start_bit: u32, end_bit: u32) -> Result<(), String> {
+    if start_bit > end_bit {
+        Err(format!(
+            "Invalid bit range: start {} is greater than end {}",
+            start_bit, end_bit
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn compute_expr(expression: ParsedExpression) -> Result<u64, String> {
+    match expression {
+        ParsedExpression::Binary {
+            operand1,
+            operator,
+            operand2,
+        } => compute(operand1, operand2, operator),
+        ParsedExpression::UnaryNot { operand } => Ok(!operand),
+        ParsedExpression::BitRangeMask {
+            operand,
+            start_bit,
+            end_bit,
+        } => compute_bit_range_mask(operand, start_bit, end_bit),
+    }
+}
+
+fn compute_bit_range_mask(operand: u64, start_bit: u32, end_bit: u32) -> Result<u64, String> {
+    validate_bit_range(start_bit, end_bit)?;
+    if end_bit > u64::BITS {
+        return Err(format!("Invalid bit range end: {}", end_bit));
+    }
+
+    let width = end_bit - start_bit;
+    let mask = if width == 0 {
+        0
+    } else if width == u64::BITS {
+        u64::MAX
+    } else {
+        ((1_u64 << width) - 1) << start_bit
+    };
+    Ok(operand & mask)
 }
 
 /// Applies a supported arithmetic, bitwise, or shift operator to two `u64` operands.
@@ -157,11 +303,11 @@ mod tests {
     use super::*;
     use std::num::IntErrorKind;
 
-    fn parsed(operand1: u64, operand2: u64, operator: Operator) -> ParsedExpression {
-        ParsedExpression {
+    fn parsed_binary(operand1: u64, operand2: u64, operator: Operator) -> ParsedExpression {
+        ParsedExpression::Binary {
             operand1,
-            operand2,
             operator,
+            operand2,
         }
     }
 
@@ -262,29 +408,41 @@ mod tests {
 
     #[test]
     fn parse_expr_accepts_explicit_operands_for_all_operators() {
-        assert_eq!(parse_expr(0, "1 + 2"), Ok(parsed(1, 2, Operator::Add)));
-        assert_eq!(parse_expr(0, "3 - 4"), Ok(parsed(3, 4, Operator::Subtract)));
-        assert_eq!(parse_expr(0, "5 * 6"), Ok(parsed(5, 6, Operator::Multiply)));
-        assert_eq!(parse_expr(0, "7 / 8"), Ok(parsed(7, 8, Operator::Divide)));
+        assert_eq!(
+            parse_expr(0, "1 + 2"),
+            Ok(parsed_binary(1, 2, Operator::Add))
+        );
+        assert_eq!(
+            parse_expr(0, "3 - 4"),
+            Ok(parsed_binary(3, 4, Operator::Subtract))
+        );
+        assert_eq!(
+            parse_expr(0, "5 * 6"),
+            Ok(parsed_binary(5, 6, Operator::Multiply))
+        );
+        assert_eq!(
+            parse_expr(0, "7 / 8"),
+            Ok(parsed_binary(7, 8, Operator::Divide))
+        );
         assert_eq!(
             parse_expr(0, "9 << 10"),
-            Ok(parsed(9, 10, Operator::ShiftLeft))
+            Ok(parsed_binary(9, 10, Operator::ShiftLeft))
         );
         assert_eq!(
             parse_expr(0, "11 >> 12"),
-            Ok(parsed(11, 12, Operator::ShiftRight))
+            Ok(parsed_binary(11, 12, Operator::ShiftRight))
         );
         assert_eq!(
             parse_expr(0, "13 | 14"),
-            Ok(parsed(13, 14, Operator::BitOr))
+            Ok(parsed_binary(13, 14, Operator::BitOr))
         );
         assert_eq!(
             parse_expr(0, "15 & 16"),
-            Ok(parsed(15, 16, Operator::BitAnd))
+            Ok(parsed_binary(15, 16, Operator::BitAnd))
         );
         assert_eq!(
             parse_expr(0, "17 ^ 18"),
-            Ok(parsed(17, 18, Operator::BitXor))
+            Ok(parsed_binary(17, 18, Operator::BitXor))
         );
     }
 
@@ -292,15 +450,15 @@ mod tests {
     fn parse_expr_accepts_supported_literal_bases() {
         assert_eq!(
             parse_expr(0, "0xff + 0X10"),
-            Ok(parsed(255, 16, Operator::Add))
+            Ok(parsed_binary(255, 16, Operator::Add))
         );
         assert_eq!(
             parse_expr(0, "0o17 + 0O10"),
-            Ok(parsed(15, 8, Operator::Add))
+            Ok(parsed_binary(15, 8, Operator::Add))
         );
         assert_eq!(
             parse_expr(0, "0b1010 + 0B11"),
-            Ok(parsed(10, 3, Operator::Add))
+            Ok(parsed_binary(10, 3, Operator::Add))
         );
     }
 
@@ -308,17 +466,20 @@ mod tests {
     fn parse_expr_accepts_surrounding_whitespace() {
         assert_eq!(
             parse_expr(0, " \t 12 \n + \r 34 \t "),
-            Ok(parsed(12, 34, Operator::Add))
+            Ok(parsed_binary(12, 34, Operator::Add))
         );
     }
 
     #[test]
     fn parse_expr_accepts_compact_syntax() {
-        assert_eq!(parse_expr(0, "1+2"), Ok(parsed(1, 2, Operator::Add)));
-        assert_eq!(parse_expr(0, "3<<4"), Ok(parsed(3, 4, Operator::ShiftLeft)));
+        assert_eq!(parse_expr(0, "1+2"), Ok(parsed_binary(1, 2, Operator::Add)));
+        assert_eq!(
+            parse_expr(0, "3<<4"),
+            Ok(parsed_binary(3, 4, Operator::ShiftLeft))
+        );
         assert_eq!(
             parse_expr(42, "<<2"),
-            Ok(parsed(42, 2, Operator::ShiftLeft))
+            Ok(parsed_binary(42, 2, Operator::ShiftLeft))
         );
     }
 
@@ -326,28 +487,75 @@ mod tests {
     fn parse_expr_accepts_extra_whitespace_between_tokens() {
         assert_eq!(
             parse_expr(0, "2     +   2"),
-            Ok(parsed(2, 2, Operator::Add))
+            Ok(parsed_binary(2, 2, Operator::Add))
         );
         assert_eq!(
             parse_expr(0, "8     >>      1"),
-            Ok(parsed(8, 1, Operator::ShiftRight))
+            Ok(parsed_binary(8, 1, Operator::ShiftRight))
         );
         assert_eq!(
             parse_expr(42, "     &      0xff"),
-            Ok(parsed(42, 255, Operator::BitAnd))
+            Ok(parsed_binary(42, 255, Operator::BitAnd))
         );
     }
 
     #[test]
     fn parse_expr_uses_current_value_when_left_operand_is_omitted() {
-        assert_eq!(parse_expr(42, "+ 5"), Ok(parsed(42, 5, Operator::Add)));
+        assert_eq!(
+            parse_expr(42, "+ 5"),
+            Ok(parsed_binary(42, 5, Operator::Add))
+        );
         assert_eq!(
             parse_expr(42, "<< 2"),
-            Ok(parsed(42, 2, Operator::ShiftLeft))
+            Ok(parsed_binary(42, 2, Operator::ShiftLeft))
         );
         assert_eq!(
             parse_expr(42, " & 0xff"),
-            Ok(parsed(42, 255, Operator::BitAnd))
+            Ok(parsed_binary(42, 255, Operator::BitAnd))
+        );
+    }
+
+    #[test]
+    fn parse_expr_accepts_unary_not() {
+        assert_eq!(
+            parse_expr(0, "~5"),
+            Ok(ParsedExpression::UnaryNot { operand: 5 })
+        );
+        assert_eq!(
+            parse_expr(0, "~ 0xff"),
+            Ok(ParsedExpression::UnaryNot { operand: 255 })
+        );
+        assert_eq!(
+            parse_expr(42, "~"),
+            Ok(ParsedExpression::UnaryNot { operand: 42 })
+        );
+    }
+
+    #[test]
+    fn parse_expr_accepts_bit_range_masks() {
+        assert_eq!(
+            parse_expr(0, "33[0:2]"),
+            Ok(ParsedExpression::BitRangeMask {
+                operand: 33,
+                start_bit: 0,
+                end_bit: 2,
+            })
+        );
+        assert_eq!(
+            parse_expr(0, "0b1011 [ 1 : 3 ]"),
+            Ok(ParsedExpression::BitRangeMask {
+                operand: 0b1011,
+                start_bit: 1,
+                end_bit: 3,
+            })
+        );
+        assert_eq!(
+            parse_expr(0xff00, "[0:8]"),
+            Ok(ParsedExpression::BitRangeMask {
+                operand: 0xff00,
+                start_bit: 0,
+                end_bit: 8,
+            })
         );
     }
 
@@ -374,6 +582,30 @@ mod tests {
             parse_expr(0, "0xg + 1").unwrap_err(),
             "Malformed expression '0xg + 1'"
         );
+        assert_eq!(
+            parse_expr(0, "33[:2]").unwrap_err(),
+            "Malformed expression '33[:2]'"
+        );
+        assert_eq!(
+            parse_expr(0, "33[0:]").unwrap_err(),
+            "Malformed expression '33[0:]'"
+        );
+        assert_eq!(
+            parse_expr(0, "33[a:2]").unwrap_err(),
+            "Malformed expression '33[a:2]'"
+        );
+    }
+
+    #[test]
+    fn parse_expr_rejects_invalid_bit_ranges() {
+        assert_eq!(
+            parse_expr(0, "33[3:2]").unwrap_err(),
+            "Invalid bit range: start 3 is greater than end 2"
+        );
+        assert_eq!(
+            parse_expr(0, "33[0:65]").unwrap_err(),
+            "Invalid bit range end: 65"
+        );
     }
 
     #[test]
@@ -385,6 +617,14 @@ mod tests {
         assert_eq!(
             parse_expr(0, "1 + 18446744073709551616").unwrap_err(),
             "Error parsing operand 2 - number too large to fit in target type"
+        );
+        assert_eq!(
+            parse_expr(0, "~18446744073709551616").unwrap_err(),
+            "Error parsing unary operand - number too large to fit in target type"
+        );
+        assert_eq!(
+            parse_expr(0, "18446744073709551616[0:1]").unwrap_err(),
+            "Error parsing range operand - number too large to fit in target type"
         );
     }
 
@@ -443,6 +683,58 @@ mod tests {
         assert_eq!(compute(0b1010, 0b1100, Operator::BitOr), Ok(0b1110));
         assert_eq!(compute(0b1010, 0b1100, Operator::BitAnd), Ok(0b1000));
         assert_eq!(compute(0b1010, 0b1100, Operator::BitXor), Ok(0b0110));
+    }
+
+    #[test]
+    fn compute_expr_applies_unary_not() {
+        assert_eq!(
+            compute_expr(ParsedExpression::UnaryNot { operand: 5 }),
+            Ok(!5)
+        );
+    }
+
+    #[test]
+    fn compute_expr_applies_bit_range_masks() {
+        assert_eq!(
+            compute_expr(ParsedExpression::BitRangeMask {
+                operand: 33,
+                start_bit: 0,
+                end_bit: 2,
+            }),
+            Ok(1)
+        );
+        assert_eq!(
+            compute_expr(ParsedExpression::BitRangeMask {
+                operand: 0b1110,
+                start_bit: 1,
+                end_bit: 3,
+            }),
+            Ok(0b0110)
+        );
+        assert_eq!(
+            compute_expr(ParsedExpression::BitRangeMask {
+                operand: u64::MAX,
+                start_bit: 63,
+                end_bit: 64,
+            }),
+            Ok(1_u64 << 63)
+        );
+        assert_eq!(
+            compute_expr(ParsedExpression::BitRangeMask {
+                operand: u64::MAX,
+                start_bit: 0,
+                end_bit: 64,
+            }),
+            Ok(u64::MAX)
+        );
+        assert_eq!(
+            compute_expr(ParsedExpression::BitRangeMask {
+                operand: u64::MAX,
+                start_bit: 2,
+                end_bit: 2,
+            }),
+            Ok(0)
+        );
     }
 
     #[test]

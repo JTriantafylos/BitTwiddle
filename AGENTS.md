@@ -14,6 +14,11 @@ Core behavior:
 - Expression input accepts unsigned integer literals in decimal, hex (`0x`), octal
   (`0o`), and binary (`0b`) forms.
 - Supported operators are `+`, `-`, `*`, `/`, `<<`, `>>`, `|`, `&`, and `^`.
+- Unary bitwise NOT is supported as `~literal`; bare `~` applies to the current
+  model value.
+- Bit range masks are supported as `literal[start:end]`; omitted literals use the
+  current model value. Ranges are half-open and zero-based, so `[0:2]` keeps bits
+  0 and 1.
 - Arithmetic uses `u64` wrapping behavior for add/subtract/multiply.
 - Division by zero and shifts of 64 bits or more are rejected with errors.
 - If the left operand is omitted in an expression, the current model value is
@@ -118,6 +123,8 @@ terminal:
 
 - `parse_unsigned` for decimal, hex, octal, and binary literals.
 - `parse_expr` for explicit operands and omitted left operands.
+- `parse_expr` and expression computation for unary NOT and half-open bit range
+  masks.
 - `compute` for wrapping arithmetic, bitwise operators, division by zero, and
   invalid shifts.
 - History navigation in `update`.

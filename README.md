@@ -36,6 +36,7 @@ Supported operators:
 - `|`: Binary OR
 - `&`: Binary AND
 - `^`: Binary XOR
+- `~`: Bitwise NOT
 
 Examples:
 
@@ -43,6 +44,7 @@ Examples:
 0xFF & 0b10101010
 1 << 12
 0xF0 | 0x0F
+~5
 ```
 
 You can also skip the left side of an expression. In that case, BitTwiddle uses
@@ -52,6 +54,21 @@ the current calculator value as the first operand:
 + 1
 << 4
 & 0xFF
+```
+
+Unary NOT can omit its operand to use the current calculator value:
+
+```text
+~
+```
+
+Bit range masks use half-open, zero-based indexes. For example, `[0:2]` keeps
+bits 0 and 1 and clears every other bit:
+
+```text
+33[0:2]
+0b1011[1:3]
+[0:8]
 ```
 
 ## Controls
@@ -79,4 +96,5 @@ When selecting history:
 
 Calculations are done on a 64-bit unsigned value. Addition, subtraction, and
 multiplication wrap like normal low-level integer operations. Division by zero
-and shifts of 64 bits or more are shown as errors.
+and shifts of 64 bits or more are shown as errors. Bit range mask end indexes
+must be no greater than 64.

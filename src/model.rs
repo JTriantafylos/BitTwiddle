@@ -1,6 +1,6 @@
 use crate::{
     Message,
-    expression::{Operator, compute, parse_expr},
+    expression::{ParsedExpression, compute_expr, parse_expr},
 };
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -64,9 +64,7 @@ impl InputMode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CalculationHistoryEntry {
-    pub(crate) operand1: u64,
-    pub(crate) operator: Operator,
-    pub(crate) operand2: u64,
+    pub(crate) expression: ParsedExpression,
     pub(crate) result: u64,
 }
 
@@ -96,29 +94,19 @@ impl BitTwiddleModel {
 
     pub(crate) fn submit_expression(&mut self) -> Option<Message> {
         match parse_expr(self.value, &self.expression_input_text) {
-            Ok(expression) => {
-                match compute(
-                    expression.operand1,
-                    expression.operand2,
-                    expression.operator,
-                ) {
-                    Ok(result) => {
-                        self.value = result;
-                        self.error = None;
-                        self.expression_input_history
-                            .push(self.expression_input_text.clone());
-                        self.calculation_history.push(CalculationHistoryEntry {
-                            operand1: expression.operand1,
-                            operator: expression.operator,
-                            operand2: expression.operand2,
-                            result,
-                        });
-                    }
-                    Err(e) => {
-                        self.error = Some(format!("Computation error: {}", e));
-                    }
+            Ok(expression) => match compute_expr(expression) {
+                Ok(result) => {
+                    self.value = result;
+                    self.error = None;
+                    self.expression_input_history
+                        .push(self.expression_input_text.clone());
+                    self.calculation_history
+                        .push(CalculationHistoryEntry { expression, result });
                 }
-            }
+                Err(e) => {
+                    self.error = Some(format!("Computation error: {}", e));
+                }
+            },
             Err(e) => {
                 self.error = Some(format!("Parse error: {}", e));
             }
@@ -356,22 +344,42 @@ impl BitTwiddleModel {
         &self,
         entry: &CalculationHistoryEntry,
     ) -> String {
+        match entry.expression {
+            ParsedExpression::Binary {
+                operand1,
+                operator,
+                operand2,
+            } => {
+                format!(
+                    "{} {} {}",
+                    self.format_operand(operand1),
+                    operator,
+                    self.format_operand(operand2)
+                )
+            }
+            ParsedExpression::UnaryNot { operand } => {
+                format!("~{}", self.format_operand(operand))
+            }
+            ParsedExpression::BitRangeMask {
+                operand,
+                start_bit,
+                end_bit,
+            } => {
+                format!(
+                    "{}[{}:{}]",
+                    self.format_operand(operand),
+                    start_bit,
+                    end_bit
+                )
+            }
+        }
+    }
+
+    fn format_operand(&self, operand: u64) -> String {
         match self.display_mode {
-            DisplayMode::Decimal => {
-                format!("{} {} {}", entry.operand1, entry.operator, entry.operand2)
-            }
-            DisplayMode::Hex => {
-                format!(
-                    "{:#X} {} {:#X}",
-                    entry.operand1, entry.operator, entry.operand2
-                )
-            }
-            DisplayMode::Octal => {
-                format!(
-                    "{:#o} {} {:#o}",
-                    entry.operand1, entry.operator, entry.operand2
-                )
-            }
+            DisplayMode::Decimal => operand.to_string(),
+            DisplayMode::Hex => format!("{:#X}", operand),
+            DisplayMode::Octal => format!("{:#o}", operand),
         }
     }
 
@@ -402,12 +410,29 @@ impl BitTwiddleModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::expression::Operator;
 
     fn model_with_input(input: &str, cursor: usize) -> BitTwiddleModel {
         BitTwiddleModel {
             expression_input_text: input.to_string(),
             expression_input_cursor_index: cursor,
             ..Default::default()
+        }
+    }
+
+    fn binary_history_entry(
+        operand1: u64,
+        operator: Operator,
+        operand2: u64,
+        result: u64,
+    ) -> CalculationHistoryEntry {
+        CalculationHistoryEntry {
+            expression: ParsedExpression::Binary {
+                operand1,
+                operator,
+                operand2,
+            },
+            result,
         }
     }
 
@@ -486,12 +511,7 @@ mod tests {
         assert_eq!(model.expression_input_history, vec!["2 + 3"]);
         assert_eq!(
             model.calculation_history,
-            vec![CalculationHistoryEntry {
-                operand1: 2,
-                operator: Operator::Add,
-                operand2: 3,
-                result: 5,
-            }]
+            vec![binary_history_entry(2, Operator::Add, 3, 5)]
         );
     }
 
@@ -509,11 +529,42 @@ mod tests {
         assert_eq!(model.value, 17);
         assert_eq!(
             model.calculation_history,
+            vec![binary_history_entry(10, Operator::Add, 7, 17)]
+        );
+    }
+
+    #[test]
+    fn submit_expression_supports_unary_not() {
+        let mut model = model_with_input("~5", 2);
+
+        model.submit_expression();
+
+        assert_eq!(model.value, !5);
+        assert_eq!(
+            model.calculation_history,
             vec![CalculationHistoryEntry {
-                operand1: 10,
-                operator: Operator::Add,
-                operand2: 7,
-                result: 17,
+                expression: ParsedExpression::UnaryNot { operand: 5 },
+                result: !5,
+            }]
+        );
+    }
+
+    #[test]
+    fn submit_expression_supports_bit_range_mask() {
+        let mut model = model_with_input("33[0:2]", 7);
+
+        model.submit_expression();
+
+        assert_eq!(model.value, 1);
+        assert_eq!(
+            model.calculation_history,
+            vec![CalculationHistoryEntry {
+                expression: ParsedExpression::BitRangeMask {
+                    operand: 33,
+                    start_bit: 0,
+                    end_bit: 2,
+                },
+                result: 1,
             }]
         );
     }
@@ -674,12 +725,7 @@ mod tests {
         let mut model = BitTwiddleModel {
             error: Some("problem".to_string()),
             input_mode: InputMode::HistorySelect,
-            calculation_history: vec![CalculationHistoryEntry {
-                operand1: 1,
-                operator: Operator::Add,
-                operand2: 2,
-                result: 3,
-            }],
+            calculation_history: vec![binary_history_entry(1, Operator::Add, 2, 3)],
             calculation_history_selection_index: Some(0),
             ..Default::default()
         };
@@ -699,12 +745,7 @@ mod tests {
             input_mode: InputMode::HistorySelect,
             expression_input_text: "12 + 34".to_string(),
             expression_input_cursor_index: 2,
-            calculation_history: vec![CalculationHistoryEntry {
-                operand1: 1,
-                operator: Operator::Add,
-                operand2: 2,
-                result: 3,
-            }],
+            calculation_history: vec![binary_history_entry(1, Operator::Add, 2, 3)],
             calculation_history_selection_index: Some(0),
             ..Default::default()
         };
@@ -722,18 +763,8 @@ mod tests {
         let mut model = BitTwiddleModel {
             input_mode: InputMode::ExpressionInput,
             calculation_history: vec![
-                CalculationHistoryEntry {
-                    operand1: 1,
-                    operator: Operator::Add,
-                    operand2: 1,
-                    result: 2,
-                },
-                CalculationHistoryEntry {
-                    operand1: 2,
-                    operator: Operator::Add,
-                    operand2: 2,
-                    result: 4,
-                },
+                binary_history_entry(1, Operator::Add, 1, 2),
+                binary_history_entry(2, Operator::Add, 2, 4),
             ],
             ..Default::default()
         };
@@ -747,12 +778,7 @@ mod tests {
     #[test]
     fn focus_calculation_history_without_clicked_item_uses_default_selection() {
         let mut model = BitTwiddleModel {
-            calculation_history: vec![CalculationHistoryEntry {
-                operand1: 1,
-                operator: Operator::Add,
-                operand2: 2,
-                result: 3,
-            }],
+            calculation_history: vec![binary_history_entry(1, Operator::Add, 2, 3)],
             ..Default::default()
         };
 
@@ -788,12 +814,7 @@ mod tests {
     #[test]
     fn entering_history_select_initializes_selection_to_newest_entry() {
         let mut model = BitTwiddleModel {
-            calculation_history: vec![CalculationHistoryEntry {
-                operand1: 1,
-                operator: Operator::Add,
-                operand2: 2,
-                result: 3,
-            }],
+            calculation_history: vec![binary_history_entry(1, Operator::Add, 2, 3)],
             ..Default::default()
         };
 
@@ -974,24 +995,9 @@ mod tests {
     fn calculation_history_selection_moves_newest_first_and_clamps() {
         let mut model = BitTwiddleModel {
             calculation_history: vec![
-                CalculationHistoryEntry {
-                    operand1: 1,
-                    operator: Operator::Add,
-                    operand2: 1,
-                    result: 2,
-                },
-                CalculationHistoryEntry {
-                    operand1: 2,
-                    operator: Operator::Add,
-                    operand2: 2,
-                    result: 4,
-                },
-                CalculationHistoryEntry {
-                    operand1: 3,
-                    operator: Operator::Add,
-                    operand2: 3,
-                    result: 6,
-                },
+                binary_history_entry(1, Operator::Add, 1, 2),
+                binary_history_entry(2, Operator::Add, 2, 4),
+                binary_history_entry(3, Operator::Add, 3, 6),
             ],
             calculation_history_selection_index: Some(0),
             ..Default::default()
@@ -1034,18 +1040,8 @@ mod tests {
             expression_input_cursor_index: 7,
             expression_input_history_index: Some(0),
             calculation_history: vec![
-                CalculationHistoryEntry {
-                    operand1: 1,
-                    operator: Operator::Add,
-                    operand2: 1,
-                    result: 2,
-                },
-                CalculationHistoryEntry {
-                    operand1: 10,
-                    operator: Operator::ShiftLeft,
-                    operand2: 2,
-                    result: 40,
-                },
+                binary_history_entry(1, Operator::Add, 1, 2),
+                binary_history_entry(10, Operator::ShiftLeft, 2, 40),
             ],
             calculation_history_selection_index: Some(0),
             ..Default::default()
@@ -1065,12 +1061,7 @@ mod tests {
         let mut model = BitTwiddleModel {
             display_mode: DisplayMode::Hex,
             input_mode: InputMode::HistorySelect,
-            calculation_history: vec![CalculationHistoryEntry {
-                operand1: 10,
-                operator: Operator::BitOr,
-                operand2: 15,
-                result: 15,
-            }],
+            calculation_history: vec![binary_history_entry(10, Operator::BitOr, 15, 15)],
             calculation_history_selection_index: Some(0),
             ..Default::default()
         };
@@ -1085,12 +1076,7 @@ mod tests {
         let mut model = BitTwiddleModel {
             display_mode: DisplayMode::Octal,
             input_mode: InputMode::HistorySelect,
-            calculation_history: vec![CalculationHistoryEntry {
-                operand1: 8,
-                operator: Operator::BitAnd,
-                operand2: 7,
-                result: 0,
-            }],
+            calculation_history: vec![binary_history_entry(8, Operator::BitAnd, 7, 0)],
             calculation_history_selection_index: Some(0),
             ..Default::default()
         };
@@ -1101,17 +1087,44 @@ mod tests {
     }
 
     #[test]
+    fn copy_selected_calculation_history_formats_unary_and_range_expressions() {
+        let mut model = BitTwiddleModel {
+            display_mode: DisplayMode::Hex,
+            input_mode: InputMode::HistorySelect,
+            calculation_history: vec![
+                CalculationHistoryEntry {
+                    expression: ParsedExpression::UnaryNot { operand: 5 },
+                    result: !5,
+                },
+                CalculationHistoryEntry {
+                    expression: ParsedExpression::BitRangeMask {
+                        operand: 33,
+                        start_bit: 0,
+                        end_bit: 2,
+                    },
+                    result: 1,
+                },
+            ],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        model.copy_selected_calculation_history();
+        assert_eq!(model.expression_input_text, "0x21[0:2]");
+
+        model.input_mode = InputMode::HistorySelect;
+        model.calculation_history_selection_index = Some(1);
+        model.copy_selected_calculation_history();
+        assert_eq!(model.expression_input_text, "~0x5");
+    }
+
+    #[test]
     fn format_calculation_history_entry_includes_result() {
         let model = BitTwiddleModel {
             display_mode: DisplayMode::Hex,
             ..Default::default()
         };
-        let entry = CalculationHistoryEntry {
-            operand1: 10,
-            operator: Operator::Add,
-            operand2: 5,
-            result: 15,
-        };
+        let entry = binary_history_entry(10, Operator::Add, 5, 15);
 
         assert_eq!(
             model.format_calculation_history_entry(&entry),
