@@ -25,6 +25,12 @@ Numbers can be written in the usual programmer-friendly formats:
 0b101010
 ```
 
+A single number sets the current value directly:
+
+```text
+32
+```
+
 Supported operators:
 
 - `+`: Addition

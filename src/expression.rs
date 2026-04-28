@@ -50,6 +50,9 @@ impl fmt::Display for Operator {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParsedExpression {
+    Literal {
+        value: u64,
+    },
     Binary {
         operand1: u64,
         operator: Operator,
@@ -86,16 +89,18 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
 
 /// Parses an arithmetic or bitwise expression.
 ///
-/// Operands are unsigned integer literals accepted by [`parse_unsigned`]. When the
-/// left operand is omitted from a binary expression, `current_value` is used as
-/// `operand1`. Unary NOT can omit its operand to apply to `current_value`, and a
-/// bit range mask can omit its operand before `[...]` to mask `current_value`.
-/// Bit range masks accept either half-open `start:end` ranges or a single bit
-/// index, which is treated as `index:index + 1`.
+/// Operands are unsigned integer literals accepted by [`parse_unsigned`]. A
+/// single literal expression evaluates to that literal, replacing the current
+/// value. When the left operand is omitted from a binary expression,
+/// `current_value` is used as `operand1`. Unary NOT can omit its operand to apply
+/// to `current_value`, and a bit range mask can omit its operand before `[...]`
+/// to mask `current_value`. Bit range masks accept either half-open `start:end`
+/// ranges or a single bit index, which is treated as `index:index + 1`.
 /// Returns an error for malformed expressions or operands that cannot fit in a
 /// `u64`.
 pub fn parse_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
     for parser in [
+        parse_literal_expr,
         parse_binary_expr,
         parse_unary_not_expr,
         parse_bit_range_mask_expr,
@@ -112,6 +117,25 @@ pub fn parse_expr(current_value: u64, input: &str) -> Result<ParsedExpression, S
 
 fn is_parse_failure(error: &str) -> bool {
     error == "malformed"
+}
+
+fn parse_literal_expr(_current_value: u64, input: &str) -> Result<ParsedExpression, String> {
+    static LITERAL_EXPR_RE: OnceLock<Regex> = OnceLock::new();
+    let re = LITERAL_EXPR_RE.get_or_init(|| {
+        Regex::new(concat!(
+            r"^",
+            r"\s*",
+            r"(?<value>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)",
+            r"\s*",
+            r"$"
+        ))
+        .unwrap()
+    });
+    let caps = re.captures(input).ok_or("malformed")?;
+    let value =
+        parse_unsigned(&caps["value"]).map_err(|e| format!("Error parsing literal - {}", e))?;
+
+    Ok(ParsedExpression::Literal { value })
 }
 
 fn parse_binary_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
@@ -247,6 +271,7 @@ fn validate_bit_range(start_bit: u32, end_bit: u32) -> Result<(), String> {
 
 pub fn compute_expr(expression: ParsedExpression) -> Result<u64, String> {
     match expression {
+        ParsedExpression::Literal { value } => Ok(value),
         ParsedExpression::Binary {
             operand1,
             operator,
@@ -322,6 +347,10 @@ mod tests {
             operator,
             operand2,
         }
+    }
+
+    fn parsed_literal(value: u64) -> ParsedExpression {
+        ParsedExpression::Literal { value }
     }
 
     #[test]
@@ -457,6 +486,14 @@ mod tests {
             parse_expr(0, "17 ^ 18"),
             Ok(parsed_binary(17, 18, Operator::BitXor))
         );
+    }
+
+    #[test]
+    fn parse_expr_accepts_single_number_expressions() {
+        assert_eq!(parse_expr(999, "32"), Ok(parsed_literal(32)));
+        assert_eq!(parse_expr(999, " 0xff "), Ok(parsed_literal(255)));
+        assert_eq!(parse_expr(999, "\t0o17\n"), Ok(parsed_literal(15)));
+        assert_eq!(parse_expr(999, "0b1010"), Ok(parsed_literal(10)));
     }
 
     #[test]
@@ -652,6 +689,10 @@ mod tests {
             "Error parsing operand 1 - number too large to fit in target type"
         );
         assert_eq!(
+            parse_expr(0, "18446744073709551616").unwrap_err(),
+            "Error parsing literal - number too large to fit in target type"
+        );
+        assert_eq!(
             parse_expr(0, "1 + 18446744073709551616").unwrap_err(),
             "Error parsing operand 2 - number too large to fit in target type"
         );
@@ -727,6 +768,14 @@ mod tests {
         assert_eq!(
             compute_expr(ParsedExpression::UnaryNot { operand: 5 }),
             Ok(!5)
+        );
+    }
+
+    #[test]
+    fn compute_expr_returns_literal_values() {
+        assert_eq!(
+            compute_expr(ParsedExpression::Literal { value: 32 }),
+            Ok(32)
         );
     }
 

@@ -13,6 +13,7 @@ Core behavior:
 
 - Expression input accepts unsigned integer literals in decimal, hex (`0x`), octal
   (`0o`), and binary (`0b`) forms.
+- A single unsigned integer literal sets the current model value directly.
 - Supported operators are `+`, `-`, `*`, `/`, `<<`, `>>`, `|`, `&`, and `^`.
 - Unary bitwise NOT is supported as `~literal`; bare `~` applies to the current
   model value.

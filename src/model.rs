@@ -345,6 +345,7 @@ impl BitTwiddleModel {
         entry: &CalculationHistoryEntry,
     ) -> String {
         match entry.expression {
+            ParsedExpression::Literal { value } => self.format_operand(value),
             ParsedExpression::Binary {
                 operand1,
                 operator,
@@ -534,6 +535,27 @@ mod tests {
         assert_eq!(
             model.calculation_history,
             vec![binary_history_entry(10, Operator::Add, 7, 17)]
+        );
+    }
+
+    #[test]
+    fn submit_expression_sets_value_from_single_number() {
+        let mut model = BitTwiddleModel {
+            value: 99,
+            expression_input_text: "32".to_string(),
+            expression_input_cursor_index: 2,
+            ..Default::default()
+        };
+
+        model.submit_expression();
+
+        assert_eq!(model.value, 32);
+        assert_eq!(
+            model.calculation_history,
+            vec![CalculationHistoryEntry {
+                expression: ParsedExpression::Literal { value: 32 },
+                result: 32,
+            }]
         );
     }
 
@@ -1140,6 +1162,24 @@ mod tests {
         model.calculation_history_selection_index = Some(1);
         model.copy_selected_calculation_history();
         assert_eq!(model.expression_input_text, "~0x5");
+    }
+
+    #[test]
+    fn copy_selected_calculation_history_formats_literal_expressions() {
+        let mut model = BitTwiddleModel {
+            display_mode: DisplayMode::Hex,
+            input_mode: InputMode::HistorySelect,
+            calculation_history: vec![CalculationHistoryEntry {
+                expression: ParsedExpression::Literal { value: 32 },
+                result: 32,
+            }],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        model.copy_selected_calculation_history();
+
+        assert_eq!(model.expression_input_text, "0x20");
     }
 
     #[test]
