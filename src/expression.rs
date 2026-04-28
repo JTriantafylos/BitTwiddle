@@ -90,6 +90,8 @@ fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
 /// left operand is omitted from a binary expression, `current_value` is used as
 /// `operand1`. Unary NOT can omit its operand to apply to `current_value`, and a
 /// bit range mask can omit its operand before `[...]` to mask `current_value`.
+/// Bit range masks accept either half-open `start:end` ranges or a single bit
+/// index, which is treated as `index:index + 1`.
 /// Returns an error for malformed expressions or operands that cannot fit in a
 /// `u64`.
 pub fn parse_expr(current_value: u64, input: &str) -> Result<ParsedExpression, String> {
@@ -183,10 +185,12 @@ fn parse_bit_range_mask_expr(current_value: u64, input: &str) -> Result<ParsedEx
             r"\s*",
             r"(?<start_bit>\d+)",
             r"\s*",
+            r"(?:",
             r":",
             r"\s*",
             r"(?<end_bit>\d+)",
             r"\s*",
+            r")?",
             r"\]",
             r"\s*",
             r"$"
@@ -200,7 +204,16 @@ fn parse_bit_range_mask_expr(current_value: u64, input: &str) -> Result<ParsedEx
         None => current_value,
     };
     let start_bit = parse_bit_range_bound(&caps["start_bit"], "start")?;
-    let end_bit = parse_bit_range_bound(&caps["end_bit"], "end")?;
+    let end_bit = match caps.name("end_bit") {
+        Some(s) => parse_bit_range_bound(s.as_str(), "end")?,
+        None => {
+            let end_bit = start_bit + 1;
+            if end_bit > u64::BITS {
+                return Err(format!("Invalid bit range end: {}", end_bit));
+            }
+            end_bit
+        }
+    };
 
     validate_bit_range(start_bit, end_bit)?;
 
@@ -557,6 +570,22 @@ mod tests {
                 end_bit: 8,
             })
         );
+        assert_eq!(
+            parse_expr(0, "33[4]"),
+            Ok(ParsedExpression::BitRangeMask {
+                operand: 33,
+                start_bit: 4,
+                end_bit: 5,
+            })
+        );
+        assert_eq!(
+            parse_expr(0b1010, "[ 1 ]"),
+            Ok(ParsedExpression::BitRangeMask {
+                operand: 0b1010,
+                start_bit: 1,
+                end_bit: 2,
+            })
+        );
     }
 
     #[test]
@@ -591,6 +620,10 @@ mod tests {
             "Malformed expression '33[0:]'"
         );
         assert_eq!(
+            parse_expr(0, "33[]").unwrap_err(),
+            "Malformed expression '33[]'"
+        );
+        assert_eq!(
             parse_expr(0, "33[a:2]").unwrap_err(),
             "Malformed expression '33[a:2]'"
         );
@@ -604,6 +637,10 @@ mod tests {
         );
         assert_eq!(
             parse_expr(0, "33[0:65]").unwrap_err(),
+            "Invalid bit range end: 65"
+        );
+        assert_eq!(
+            parse_expr(0, "33[64]").unwrap_err(),
             "Invalid bit range end: 65"
         );
     }
@@ -735,6 +772,8 @@ mod tests {
             }),
             Ok(0)
         );
+        assert_eq!(compute_expr(parse_expr(0, "33[4]").unwrap()), Ok(0));
+        assert_eq!(compute_expr(parse_expr(0, "33[5]").unwrap()), Ok(32));
     }
 
     #[test]

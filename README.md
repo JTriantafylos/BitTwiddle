@@ -63,12 +63,14 @@ Unary NOT can omit its operand to use the current calculator value:
 ```
 
 Bit range masks use half-open, zero-based indexes. For example, `[0:2]` keeps
-bits 0 and 1 and clears every other bit:
+bits 0 and 1 and clears every other bit. A single index keeps only that bit:
 
 ```text
 33[0:2]
+33[4]
 0b1011[1:3]
 [0:8]
+[4]
 ```
 
 ## Controls

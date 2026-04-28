@@ -365,12 +365,16 @@ impl BitTwiddleModel {
                 start_bit,
                 end_bit,
             } => {
-                format!(
-                    "{}[{}:{}]",
-                    self.format_operand(operand),
-                    start_bit,
-                    end_bit
-                )
+                if end_bit == start_bit + 1 {
+                    format!("{}[{}]", self.format_operand(operand), start_bit)
+                } else {
+                    format!(
+                        "{}[{}:{}]",
+                        self.format_operand(operand),
+                        start_bit,
+                        end_bit
+                    )
+                }
             }
         }
     }
@@ -565,6 +569,26 @@ mod tests {
                     end_bit: 2,
                 },
                 result: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn submit_expression_supports_single_bit_mask() {
+        let mut model = model_with_input("33[5]", 5);
+
+        model.submit_expression();
+
+        assert_eq!(model.value, 32);
+        assert_eq!(
+            model.calculation_history,
+            vec![CalculationHistoryEntry {
+                expression: ParsedExpression::BitRangeMask {
+                    operand: 33,
+                    start_bit: 5,
+                    end_bit: 6,
+                },
+                result: 32,
             }]
         );
     }
@@ -1099,10 +1123,10 @@ mod tests {
                 CalculationHistoryEntry {
                     expression: ParsedExpression::BitRangeMask {
                         operand: 33,
-                        start_bit: 0,
-                        end_bit: 2,
+                        start_bit: 5,
+                        end_bit: 6,
                     },
-                    result: 1,
+                    result: 32,
                 },
             ],
             calculation_history_selection_index: Some(0),
@@ -1110,7 +1134,7 @@ mod tests {
         };
 
         model.copy_selected_calculation_history();
-        assert_eq!(model.expression_input_text, "0x21[0:2]");
+        assert_eq!(model.expression_input_text, "0x21[5]");
 
         model.input_mode = InputMode::HistorySelect;
         model.calculation_history_selection_index = Some(1);
