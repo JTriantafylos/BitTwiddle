@@ -107,6 +107,7 @@ impl BitTwiddleModel {
                         .push(self.expression_input_text.clone());
                     self.calculation_history
                         .push(CalculationHistoryEntry { expression, result });
+                    self.reset_expression_input();
                 }
                 Err(e) => {
                     self.error = Some(format!("Computation error: {}", e));
@@ -116,7 +117,6 @@ impl BitTwiddleModel {
                 self.error = Some(format!("Parse error: {}", e));
             }
         };
-        self.reset_expression_input();
         None
     }
 
@@ -688,21 +688,21 @@ mod tests {
     }
 
     #[test]
-    fn submit_expression_sets_parse_error_and_resets_input() {
+    fn submit_expression_sets_parse_error_and_keeps_input_for_editing() {
         let mut model = model_with_input("nope", 4);
 
         assert_eq!(model.submit_expression(), None);
 
         assert_eq!(model.value, 0);
         assert!(model.error.as_deref().unwrap().starts_with("Parse error:"));
-        assert_eq!(model.expression_input_text, "");
-        assert_eq!(model.expression_input_cursor_index, 0);
+        assert_eq!(model.expression_input_text, "nope");
+        assert_eq!(model.expression_input_cursor_index, 4);
         assert!(model.expression_input_history.is_empty());
         assert!(model.calculation_history.is_empty());
     }
 
     #[test]
-    fn submit_expression_sets_computation_error_and_resets_input() {
+    fn submit_expression_sets_computation_error_and_keeps_input_for_editing() {
         let mut model = model_with_input("5 / 0", 5);
 
         assert_eq!(model.submit_expression(), None);
@@ -712,7 +712,8 @@ mod tests {
             model.error.as_deref(),
             Some("Computation error: Division by zero")
         );
-        assert_eq!(model.expression_input_text, "");
+        assert_eq!(model.expression_input_text, "5 / 0");
+        assert_eq!(model.expression_input_cursor_index, 5);
         assert!(model.expression_input_history.is_empty());
         assert!(model.calculation_history.is_empty());
     }
