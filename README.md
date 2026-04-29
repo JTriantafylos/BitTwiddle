@@ -16,6 +16,10 @@ cargo run
 
 ## Supported Input
 
+Expression input accepts ASCII expression syntax only: digits, hex letters,
+base prefix letters, operators, brackets, colons, and ASCII whitespace. Other
+typed characters are ignored.
+
 Numbers can be written in the usual programmer-friendly formats:
 
 ```text

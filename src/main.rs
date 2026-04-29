@@ -113,9 +113,33 @@ fn map_expression_input_key_to_message(key: KeyEvent) -> Option<Message> {
         KeyCode::Down => Some(Message::PrevInputHistory),
         KeyCode::Backspace => Some(Message::BackspaceInputChar),
         KeyCode::Delete => Some(Message::DeleteInputChar),
-        KeyCode::Char(c) => Some(Message::InsertInputChar(c)),
+        KeyCode::Char(c) if is_expression_input_char(c) => Some(Message::InsertInputChar(c)),
         _ => None,
     }
+}
+
+fn is_expression_input_char(c: char) -> bool {
+    c.is_ascii_hexdigit()
+        || matches!(
+            c,
+            'x' | 'X'
+                | 'o'
+                | 'O'
+                | '+'
+                | '-'
+                | '*'
+                | '/'
+                | '<'
+                | '>'
+                | '|'
+                | '&'
+                | '^'
+                | '~'
+                | '['
+                | ']'
+                | ':'
+        )
+        || c.is_ascii_whitespace()
 }
 
 fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
@@ -745,6 +769,27 @@ mod tests {
                 map_key_to_message(&model, key(KeyCode::Char(c))),
                 Some(Message::InsertInputChar(c))
             );
+        }
+    }
+
+    #[test]
+    fn expression_input_accepts_only_ascii_expression_characters() {
+        let model = BitTwiddleModel::default();
+
+        for c in "0123456789aAbBcCdDeEfFxXoO+-*/<>|&^~[]:\t\n\r ".chars() {
+            assert_eq!(
+                map_key_to_message(&model, key(KeyCode::Char(c))),
+                Some(Message::InsertInputChar(c))
+            );
+        }
+    }
+
+    #[test]
+    fn expression_input_ignores_unsupported_characters() {
+        let model = BitTwiddleModel::default();
+
+        for c in ['g', 'G', '_', '(', ')', 'é', '１'] {
+            assert_eq!(map_key_to_message(&model, key(KeyCode::Char(c))), None);
         }
     }
 
