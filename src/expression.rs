@@ -2,18 +2,13 @@ use std::{fmt, sync::OnceLock};
 
 use regex::Regex;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum IntegerWidth {
     Eight,
     Sixteen,
     ThirtyTwo,
+    #[default]
     SixtyFour,
-}
-
-impl Default for IntegerWidth {
-    fn default() -> Self {
-        Self::SixtyFour
-    }
 }
 
 impl IntegerWidth {
