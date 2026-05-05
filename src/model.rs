@@ -93,6 +93,7 @@ impl BitTwiddleModel {
     pub(crate) fn clear_input(&mut self) -> Option<Message> {
         self.value = 0;
         self.error = None;
+        self.reset_expression_input();
         None
     }
 
@@ -580,10 +581,13 @@ mod tests {
     }
 
     #[test]
-    fn clear_input_resets_value_and_error() {
+    fn clear_input_resets_value_error_and_expression_input() {
         let mut model = BitTwiddleModel {
             value: 42,
             error: Some("problem".to_string()),
+            expression_input_text: "1 + 2".to_string(),
+            expression_input_cursor_index: 5,
+            expression_input_history_index: Some(0),
             ..Default::default()
         };
 
@@ -591,6 +595,9 @@ mod tests {
 
         assert_eq!(model.value, 0);
         assert_eq!(model.error, None);
+        assert_eq!(model.expression_input_text, "");
+        assert_eq!(model.expression_input_cursor_index, 0);
+        assert_eq!(model.expression_input_history_index, None);
     }
 
     #[test]

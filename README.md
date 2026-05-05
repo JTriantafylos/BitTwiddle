@@ -102,7 +102,7 @@ active width's two's-complement interpretation.
 - `Tab` / `Shift+Tab`: Switch between bit manipulation, expression input, and history selection
 - `m` / `M`: Cycle display mode forward or backward
 - `w` / `W`: Cycle integer width forward or backward
-- `Ctrl+C`: Clear the current value
+- `Ctrl+C`: Clear the current value, error, and expression input
 - `Esc`: Dismiss an error
 - `q`: Quit
 - Left-click the input box: Switch to expression input mode and move the cursor

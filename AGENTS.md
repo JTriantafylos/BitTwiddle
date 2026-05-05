@@ -98,7 +98,7 @@ focused helpers or small methods before adding larger abstractions.
 - `Tab` and `BackTab` cycle input modes.
 - `m` and `M` cycle display modes forward and backward.
 - `w` and `W` cycle integer width modes forward and backward.
-- `Ctrl+C` clears the current value and error.
+- `Ctrl+C` clears the current value, error, and expression input.
 - `Esc` dismisses errors.
 - `q` opens quit confirmation.
 - In quit confirmation:
