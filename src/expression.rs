@@ -175,23 +175,30 @@ pub fn parse_expr(
     ] {
         match parser(width, current_value, input) {
             Ok(expression) => return Ok(expression),
-            Err(e) if is_parse_failure(&e) => {}
-            Err(e) => return Err(e),
+            Err(ParseAttemptError::NoMatch) => {}
+            Err(ParseAttemptError::Invalid(e)) => return Err(e),
         }
     }
 
     Err(format!("Malformed expression '{}'", input))
 }
 
-fn is_parse_failure(error: &str) -> bool {
-    error == "malformed"
+enum ParseAttemptError {
+    NoMatch,
+    Invalid(String),
+}
+
+impl From<String> for ParseAttemptError {
+    fn from(error: String) -> Self {
+        Self::Invalid(error)
+    }
 }
 
 fn parse_literal_expr(
     width: IntegerWidth,
     _current_value: u64,
     input: &str,
-) -> Result<ParsedExpression, String> {
+) -> Result<ParsedExpression, ParseAttemptError> {
     static LITERAL_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = LITERAL_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
@@ -205,7 +212,7 @@ fn parse_literal_expr(
         ))
         .unwrap()
     });
-    let caps = re.captures(input).ok_or("malformed")?;
+    let caps = re.captures(input).ok_or(ParseAttemptError::NoMatch)?;
     let value = parse_width_unsigned(width, &caps["value"])
         .map_err(|e| format!("Error parsing literal - {}", e))?;
 
@@ -216,7 +223,7 @@ fn parse_binary_expr(
     width: IntegerWidth,
     current_value: u64,
     input: &str,
-) -> Result<ParsedExpression, String> {
+) -> Result<ParsedExpression, ParseAttemptError> {
     static BINARY_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = BINARY_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
@@ -236,7 +243,7 @@ fn parse_binary_expr(
         ))
         .unwrap()
     });
-    let caps = re.captures(input).ok_or("malformed")?;
+    let caps = re.captures(input).ok_or(ParseAttemptError::NoMatch)?;
     let operand1 = match caps.name("operand1") {
         Some(s) => parse_width_unsigned(width, s.as_str())
             .map_err(|e| format!("Error parsing operand 1 - {}", e))?,
@@ -258,7 +265,7 @@ fn parse_unary_not_expr(
     width: IntegerWidth,
     current_value: u64,
     input: &str,
-) -> Result<ParsedExpression, String> {
+) -> Result<ParsedExpression, ParseAttemptError> {
     static UNARY_NOT_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = UNARY_NOT_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
@@ -274,7 +281,7 @@ fn parse_unary_not_expr(
         ))
         .unwrap()
     });
-    let caps = re.captures(input).ok_or("malformed")?;
+    let caps = re.captures(input).ok_or(ParseAttemptError::NoMatch)?;
     let operand = match caps.name("operand") {
         Some(s) => parse_width_unsigned(width, s.as_str())
             .map_err(|e| format!("Error parsing unary operand - {}", e))?,
@@ -288,7 +295,7 @@ fn parse_bit_range_mask_expr(
     width: IntegerWidth,
     current_value: u64,
     input: &str,
-) -> Result<ParsedExpression, String> {
+) -> Result<ParsedExpression, ParseAttemptError> {
     static BIT_RANGE_MASK_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = BIT_RANGE_MASK_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
@@ -313,7 +320,7 @@ fn parse_bit_range_mask_expr(
         ))
         .unwrap()
     });
-    let caps = re.captures(input).ok_or("malformed")?;
+    let caps = re.captures(input).ok_or(ParseAttemptError::NoMatch)?;
     let operand = match caps.name("operand") {
         Some(s) => parse_width_unsigned(width, s.as_str())
             .map_err(|e| format!("Error parsing range operand - {}", e))?,
@@ -325,7 +332,7 @@ fn parse_bit_range_mask_expr(
         None => {
             let end_bit = start_bit + 1;
             if end_bit > width.bits() {
-                return Err(format!("Invalid bit range end: {}", end_bit));
+                return Err(format!("Invalid bit range end: {}", end_bit).into());
             }
             end_bit
         }
