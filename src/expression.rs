@@ -126,6 +126,12 @@ pub enum ParsedExpression {
     },
 }
 
+macro_rules! unsigned_literal_pattern {
+    () => {
+        r"0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+"
+    };
+}
+
 /// Parses an unsigned integer literal into a `u64`.
 ///
 /// Decimal literals are accepted by default. Prefixes select other bases:
@@ -189,11 +195,13 @@ fn parse_literal_expr(
     static LITERAL_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = LITERAL_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
-            r"^",
-            r"\s*",
-            r"(?<value>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)",
-            r"\s*",
-            r"$"
+            r"^",                        // Match the start of the input.
+            r"\s*",                      // Match leading whitespace.
+            r"(?<value>",                // Start the unsigned literal capture.
+            unsigned_literal_pattern!(), // Match an unsigned literal.
+            r")",                        // End the unsigned literal capture.
+            r"\s*",                      // Match trailing whitespace.
+            r"$",                        // Match the end of the input.
         ))
         .unwrap()
     });
@@ -212,15 +220,19 @@ fn parse_binary_expr(
     static BINARY_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = BINARY_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
-            r"^",                                                           // Beginning marker
-            r"\s*", // Match any preceding whitespace
-            r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?", // Capture the first operand
-            r"\s*",                                                         // Match any whitespace
-            r"(?<operator>\+|-|\*|\/|%|<<|>>|\||\&|\^)",                    // Capture the operator
-            r"\s*",                                                         // Match any whitespace
-            r"(?<operand2>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the second operand
-            r"\s*", // Match any trailing whitespace
-            r"$"    // End marker
+            r"^",                                        // Match the start of the input.
+            r"\s*",                                      // Match leading whitespace.
+            r"(?<operand1>",                             // Start the optional operand 1 capture.
+            unsigned_literal_pattern!(),                 // Match operand 1 as an unsigned literal.
+            r")?",                                       // End the optional operand 1 capture.
+            r"\s*",                                      // Match whitespace before the operator.
+            r"(?<operator>\+|-|\*|\/|%|<<|>>|\||\&|\^)", // Capture the supported operator.
+            r"\s*",                                      // Match whitespace after the operator.
+            r"(?<operand2>",                             // Start the operand 2 capture.
+            unsigned_literal_pattern!(),                 // Match operand 2 as an unsigned literal.
+            r")",                                        // End the operand 2 capture.
+            r"\s*",                                      // Match trailing whitespace.
+            r"$",                                        // Match the end of the input.
         ))
         .unwrap()
     });
@@ -250,13 +262,15 @@ fn parse_unary_not_expr(
     static UNARY_NOT_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = UNARY_NOT_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
-            r"^",
-            r"\s*",
-            r"~",
-            r"\s*",
-            r"(?<operand>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?",
-            r"\s*",
-            r"$"
+            r"^",                        // Match the start of the input.
+            r"\s*",                      // Match leading whitespace.
+            r"~",                        // Match the unary NOT operator.
+            r"\s*",                      // Match whitespace after the operator.
+            r"(?<operand>",              // Start the optional operand capture.
+            unsigned_literal_pattern!(), // Match the operand as an unsigned literal.
+            r")?",                       // End the optional operand capture.
+            r"\s*",                      // Match trailing whitespace.
+            r"$",                        // Match the end of the input.
         ))
         .unwrap()
     });
@@ -278,23 +292,24 @@ fn parse_bit_range_mask_expr(
     static BIT_RANGE_MASK_EXPR_RE: OnceLock<Regex> = OnceLock::new();
     let re = BIT_RANGE_MASK_EXPR_RE.get_or_init(|| {
         Regex::new(concat!(
-            r"^",
-            r"\s*",
-            r"(?<operand>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?",
-            r"\s*",
-            r"\[",
-            r"\s*",
-            r"(?<start_bit>\d+)",
-            r"\s*",
-            r"(?:",
-            r":",
-            r"\s*",
-            r"(?<end_bit>\d+)",
-            r"\s*",
-            r")?",
-            r"\]",
-            r"\s*",
-            r"$"
+            r"^",                        // Match the start of the input.
+            r"\s*",                      // Match leading whitespace.
+            r"(?<operand>",              // Start the optional operand capture.
+            unsigned_literal_pattern!(), // Match the operand as an unsigned literal.
+            r")?",                       // End the optional operand capture.
+            r"\s*",                      // Match whitespace before the range.
+            r"\[",                       // Match the opening range bracket.
+            r"\s*",                      // Match whitespace before the start bit.
+            r"(?<start_bit>\d+)",        // Capture the start bit.
+            r"\s*",                      // Match whitespace after the start bit.
+            r"(?:",                      // Start the optional end-bit group.
+            r"\:\s*",                    // Match the range separator.
+            r"(?<end_bit>\d+)",          // Capture the end bit.
+            r"\s*",                      // Match whitespace after the end bit.
+            r")?",                       // End the optional end-bit group.
+            r"\]",                       // Match the closing range bracket.
+            r"\s*",                      // Match trailing whitespace.
+            r"$",                        // Match the end of the input.
         ))
         .unwrap()
     });
