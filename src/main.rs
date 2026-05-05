@@ -10,7 +10,10 @@ use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Clear, List, ListItem, Paragraph},
+    widgets::{
+        Block, Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState,
+    },
 };
 use std::io;
 
@@ -339,31 +342,45 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
         .centered();
     frame.render_widget(bit_visualization, bit_area);
 
-    let expression_history = List::new(model.calculation_history.iter().rev().enumerate().map(
-        |(index, e)| {
-            let item = ListItem::new(model.format_calculation_history_entry(e));
-            if model.input_mode == InputMode::HistorySelect
-                && model.calculation_history_selection_index == Some(index)
-            {
-                item.style(
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::REVERSED),
-                )
-            } else {
-                item
-            }
-        },
-    ))
+    let expression_history = List::new(
+        model
+            .calculation_history
+            .iter()
+            .rev()
+            .map(|e| ListItem::new(model.format_calculation_history_entry(e))),
+    )
     .block(
         Block::bordered()
             .border_style(match model.input_mode {
                 InputMode::HistorySelect => Style::default().fg(Color::Yellow),
                 _ => Style::default(),
             })
-            .title("History"),
+            .title(calculation_history_title(model)),
+    )
+    .highlight_style(
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::REVERSED),
     );
-    frame.render_widget(expression_history, expression_history_area);
+    let mut expression_history_state = calculation_history_list_state(model);
+    frame.render_stateful_widget(
+        expression_history,
+        expression_history_area,
+        &mut expression_history_state,
+    );
+    if calculation_history_overflows(model, expression_history_area) {
+        let mut scrollbar_state =
+            calculation_history_scrollbar_state(model, expression_history_area);
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_style(Style::default().dim())
+                .thumb_style(Style::default().fg(Color::Yellow)),
+            calculation_history_scrollbar_area(expression_history_area),
+            &mut scrollbar_state,
+        );
+    }
 
     let help_text = footer_help_text(model);
     frame.render_widget(Paragraph::new(help_text).centered(), help_area);
@@ -418,6 +435,53 @@ fn footer_help_text(model: &BitTwiddleModel) -> Line<'static> {
     }
 
     Line::from(spans)
+}
+
+fn calculation_history_list_state(model: &BitTwiddleModel) -> ListState {
+    ListState::default().with_selected(
+        (model.input_mode == InputMode::HistorySelect)
+            .then_some(model.calculation_history_selection_index)
+            .flatten(),
+    )
+}
+
+fn calculation_history_title(model: &BitTwiddleModel) -> String {
+    if model.input_mode == InputMode::HistorySelect {
+        if let Some(selection_index) = model.calculation_history_selection_index {
+            if selection_index < model.calculation_history.len() {
+                return format!(
+                    "History {}/{}",
+                    selection_index + 1,
+                    model.calculation_history.len()
+                );
+            }
+        }
+    }
+
+    "History".to_string()
+}
+
+fn calculation_history_overflows(model: &BitTwiddleModel, area: Rect) -> bool {
+    model.calculation_history.len() > calculation_history_visible_rows(area)
+}
+
+fn calculation_history_visible_rows(area: Rect) -> usize {
+    area.height.saturating_sub(2) as usize
+}
+
+fn calculation_history_scrollbar_area(area: Rect) -> Rect {
+    Rect {
+        x: area.x + area.width.saturating_sub(1),
+        y: area.y.saturating_add(1),
+        width: 1.min(area.width),
+        height: area.height.saturating_sub(2),
+    }
+}
+
+fn calculation_history_scrollbar_state(model: &BitTwiddleModel, area: Rect) -> ScrollbarState {
+    ScrollbarState::new(model.calculation_history.len())
+        .position(model.calculation_history_selection_index.unwrap_or(0))
+        .viewport_content_length(calculation_history_visible_rows(area))
 }
 
 fn width_span<'a>(
@@ -662,7 +726,7 @@ fn main() -> Result<(), io::Error> {
 mod tests {
     use super::*;
     use crate::expression::{Operator, ParsedExpression};
-    use ratatui::crossterm::event::KeyModifiers;
+    use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyModifiers};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
@@ -694,6 +758,37 @@ mod tests {
             },
             result: value + value,
         }
+    }
+
+    fn rendered_view_text(model: &BitTwiddleModel, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| view(model, frame)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    fn rendered_view_symbol_at(
+        model: &BitTwiddleModel,
+        width: u16,
+        height: u16,
+        position: Position,
+    ) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| view(model, frame)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .cell(position)
+            .unwrap()
+            .symbol()
+            .to_string()
     }
 
     #[test]
@@ -845,6 +940,91 @@ mod tests {
         assert_eq!(
             map_key_to_message(&model, key(KeyCode::Enter)),
             Some(Message::CopySelectedCalculationHistory)
+        );
+    }
+
+    #[test]
+    fn calculation_history_state_tracks_selection_only_in_history_mode() {
+        let mut model = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            calculation_history_selection_index: Some(2),
+            ..Default::default()
+        };
+
+        assert_eq!(calculation_history_list_state(&model).selected(), Some(2));
+
+        model.input_mode = InputMode::ExpressionInput;
+        assert_eq!(calculation_history_list_state(&model).selected(), None);
+    }
+
+    #[test]
+    fn calculation_history_title_shows_position_only_for_active_selection() {
+        let mut model = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            calculation_history: (1..=23).map(history_entry).collect(),
+            calculation_history_selection_index: Some(9),
+            ..Default::default()
+        };
+
+        assert_eq!(calculation_history_title(&model), "History 10/23");
+
+        model.input_mode = InputMode::ExpressionInput;
+        assert_eq!(calculation_history_title(&model), "History");
+
+        model.input_mode = InputMode::HistorySelect;
+        model.calculation_history_selection_index = None;
+        assert_eq!(calculation_history_title(&model), "History");
+    }
+
+    #[test]
+    fn selected_history_entry_scrolls_into_visible_history_area() {
+        let model = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            calculation_history: (1..=10).map(history_entry).collect(),
+            calculation_history_selection_index: Some(9),
+            ..Default::default()
+        };
+
+        let rendered = rendered_view_text(&model, 82, 14);
+
+        assert!(rendered.contains("1 + 1 = 2"));
+        assert!(!rendered.contains("10 + 10 = 20"));
+    }
+
+    #[test]
+    fn scrollbar_appears_only_when_history_overflows() {
+        let frame_area = Rect::new(0, 0, 82, 14);
+        let history_area = app_areas(frame_area)[3];
+        let scrollbar_area = calculation_history_scrollbar_area(history_area);
+        let scrollbar_position = Position::new(scrollbar_area.x, scrollbar_area.y);
+        let overflowing = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            calculation_history: (1..=10).map(history_entry).collect(),
+            calculation_history_selection_index: Some(9),
+            ..Default::default()
+        };
+        let fitting = BitTwiddleModel {
+            input_mode: InputMode::HistorySelect,
+            calculation_history: vec![history_entry(1)],
+            calculation_history_selection_index: Some(0),
+            ..Default::default()
+        };
+
+        assert!(calculation_history_overflows(&overflowing, history_area));
+        assert!(!calculation_history_overflows(&fitting, history_area));
+        assert_ne!(
+            rendered_view_symbol_at(
+                &overflowing,
+                frame_area.width,
+                frame_area.height,
+                scrollbar_position
+            ),
+            rendered_view_symbol_at(
+                &fitting,
+                frame_area.width,
+                frame_area.height,
+                scrollbar_position
+            )
         );
     }
 
