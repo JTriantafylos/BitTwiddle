@@ -41,6 +41,7 @@ Supported operators:
 - `-`: Subtraction
 - `*`: Multiplication
 - `/`: Division
+- `%`: Modulo
 - `<<`: Binary Left-shift
 - `>>`: Binary Right-shift
 - `|`: Binary OR

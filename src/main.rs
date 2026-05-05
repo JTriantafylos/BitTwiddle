@@ -129,6 +129,7 @@ fn is_expression_input_char(c: char) -> bool {
                 | '-'
                 | '*'
                 | '/'
+                | '%'
                 | '<'
                 | '>'
                 | '|'

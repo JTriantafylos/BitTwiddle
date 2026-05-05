@@ -63,6 +63,7 @@ pub enum Operator {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     ShiftLeft,
     ShiftRight,
     BitOr,
@@ -77,6 +78,7 @@ impl Operator {
             "-" => Some(Self::Subtract),
             "*" => Some(Self::Multiply),
             "/" => Some(Self::Divide),
+            "%" => Some(Self::Modulo),
             "<<" => Some(Self::ShiftLeft),
             ">>" => Some(Self::ShiftRight),
             "|" => Some(Self::BitOr),
@@ -94,6 +96,7 @@ impl fmt::Display for Operator {
             Self::Subtract => "-",
             Self::Multiply => "*",
             Self::Divide => "/",
+            Self::Modulo => "%",
             Self::ShiftLeft => "<<",
             Self::ShiftRight => ">>",
             Self::BitOr => "|",
@@ -213,7 +216,7 @@ fn parse_binary_expr(
             r"\s*", // Match any preceding whitespace
             r"(?<operand1>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)?", // Capture the first operand
             r"\s*",                                                         // Match any whitespace
-            r"(?<operator>\+|-|\*|\/|<<|>>|\||\&|\^)",                      // Capture the operator
+            r"(?<operator>\+|-|\*|\/|%|<<|>>|\||\&|\^)",                    // Capture the operator
             r"\s*",                                                         // Match any whitespace
             r"(?<operand2>0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][0-1]+|\d+)", // Capture the second operand
             r"\s*", // Match any trailing whitespace
@@ -417,6 +420,10 @@ pub fn compute(
             .checked_div(operand2)
             .map(|result| result & mask)
             .ok_or("Division by zero".into()),
+        Operator::Modulo => operand1
+            .checked_rem(operand2)
+            .map(|result| result & mask)
+            .ok_or("Modulo by zero".into()),
         Operator::ShiftLeft => {
             if operand2 >= width.bits().into() {
                 Err(format!("Invalid left-shift: {}", operand2))
@@ -596,6 +603,10 @@ mod tests {
             Ok(parsed_binary(7, 8, Operator::Divide))
         );
         assert_eq!(
+            parse_expr(0, "7 % 3"),
+            Ok(parsed_binary(7, 3, Operator::Modulo))
+        );
+        assert_eq!(
             parse_expr(0, "9 << 10"),
             Ok(parsed_binary(9, 10, Operator::ShiftLeft))
         );
@@ -766,10 +777,6 @@ mod tests {
             "Malformed expression '1 2 + 3'"
         );
         assert_eq!(
-            parse_expr(0, "1 % 2").unwrap_err(),
-            "Malformed expression '1 % 2'"
-        );
-        assert_eq!(
             parse_expr(0, "1 ^^ 2").unwrap_err(),
             "Malformed expression '1 ^^ 2'"
         );
@@ -892,6 +899,15 @@ mod tests {
         assert_eq!(
             compute(7, 0, Operator::Divide).unwrap_err(),
             "Division by zero"
+        );
+    }
+
+    #[test]
+    fn compute_modulo_and_rejects_modulo_by_zero() {
+        assert_eq!(compute(85, 64, Operator::Modulo), Ok(21));
+        assert_eq!(
+            compute(7, 0, Operator::Modulo).unwrap_err(),
+            "Modulo by zero"
         );
     }
 
@@ -1035,6 +1051,7 @@ mod tests {
         assert_eq!(Operator::Subtract.to_string(), "-");
         assert_eq!(Operator::Multiply.to_string(), "*");
         assert_eq!(Operator::Divide.to_string(), "/");
+        assert_eq!(Operator::Modulo.to_string(), "%");
         assert_eq!(Operator::ShiftLeft.to_string(), "<<");
         assert_eq!(Operator::ShiftRight.to_string(), ">>");
         assert_eq!(Operator::BitOr.to_string(), "|");
