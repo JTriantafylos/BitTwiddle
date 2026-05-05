@@ -428,7 +428,14 @@ impl BitTwiddleModel {
     fn format_display_value(&self, value: u64) -> String {
         let value = value & self.integer_width.mask();
         match self.display_mode {
-            DisplayMode::Signed => self.signed_interpretation(value).to_string(),
+            DisplayMode::Signed => {
+                let signed_value = self.signed_interpretation(value);
+                if signed_value >= 0 {
+                    format!("+{}", signed_value)
+                } else {
+                    signed_value.to_string()
+                }
+            }
             DisplayMode::Decimal => value.to_string(),
             DisplayMode::Hex => format!("{:#X}", value),
             DisplayMode::Octal => format!("{:#o}", value),
@@ -1365,6 +1372,15 @@ mod tests {
         };
 
         assert_eq!(model.format_value_readout(), "-1");
+
+        let model = BitTwiddleModel {
+            display_mode: DisplayMode::Signed,
+            integer_width: IntegerWidth::Eight,
+            value: 0x7f,
+            ..Default::default()
+        };
+
+        assert_eq!(model.format_value_readout(), "+127");
     }
 
     #[test]
@@ -1380,5 +1396,13 @@ mod tests {
             model.format_calculation_history_entry(&entry),
             "254 + 1 = -1"
         );
+
+        let entry = binary_history_entry(1, Operator::Add, 2, 3);
+
+        assert_eq!(model.format_calculation_history_entry(&entry), "1 + 2 = +3");
+
+        let entry = binary_history_entry(3, Operator::Subtract, 3, 0);
+
+        assert_eq!(model.format_calculation_history_entry(&entry), "3 - 3 = +0");
     }
 }
