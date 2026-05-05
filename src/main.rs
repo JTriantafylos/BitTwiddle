@@ -2,8 +2,8 @@ use ratatui::{
     Frame,
     crossterm::{
         event::{
-            self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-            MouseButton, MouseEvent, MouseEventKind,
+            self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+            KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
         },
         execute,
     },
@@ -192,10 +192,13 @@ fn map_mouse_to_message(
 
     let [_, bit_area, input_area, expression_history_area, _] = app_areas(frame_area);
 
+    let input_scroll = expression_input_scroll(model, input_area);
+
     hit_test_bit(model.integer_width, bit_area, mouse.column, mouse.row)
         .map(Message::ToggleBit)
         .or_else(|| {
-            hit_test_input(input_area, mouse.column, mouse.row).map(Message::FocusExpressionInput)
+            hit_test_input(input_area, input_scroll, mouse.column, mouse.row)
+                .map(Message::FocusExpressionInput)
         })
         .or_else(|| {
             hit_test_history(
@@ -293,7 +296,9 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     .block(Block::bordered());
     frame.render_widget(width_indicator, width_area);
 
-    let input = Paragraph::new(model.expression_input_text.as_str()).block(
+    let input_scroll = expression_input_scroll(model, input_area);
+    let visible_input = &model.expression_input_text[input_scroll..];
+    let input = Paragraph::new(visible_input).block(
         Block::bordered()
             .border_style(match model.input_mode {
                 InputMode::ExpressionInput => Style::default().fg(Color::Yellow),
@@ -303,10 +308,14 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     );
     frame.render_widget(input, input_area);
     if model.input_mode == InputMode::ExpressionInput {
+        let cursor_offset = model
+            .expression_input_cursor_index
+            .saturating_sub(input_scroll)
+            .min(input_area.width.saturating_sub(2).saturating_sub(1) as usize);
         frame.set_cursor_position(Position::new(
             // Draw the cursor at the current position in the input field.
             // This position is can be controlled via the left and right arrow key
-            input_area.x + model.expression_input_cursor_index as u16 + 1,
+            input_area.x + cursor_offset as u16 + 1,
             // Move one line down, from the border to the input line
             input_area.y + 1,
         ))
@@ -584,13 +593,20 @@ fn hit_test_bit(width: IntegerWidth, area: Rect, column: u16, row: u16) -> Optio
     bit_index_at_line_column(width, line_num, line_column)
 }
 
-fn hit_test_input(area: Rect, column: u16, row: u16) -> Option<usize> {
+fn expression_input_scroll(model: &BitTwiddleModel, area: Rect) -> usize {
+    let inner_width = area.width.saturating_sub(2) as usize;
+    model
+        .expression_input_cursor_index
+        .saturating_sub(inner_width.saturating_sub(1))
+}
+
+fn hit_test_input(area: Rect, scroll: usize, column: u16, row: u16) -> Option<usize> {
     let inner_width = area.width.saturating_sub(2);
     let x = column.checked_sub(area.x + 1)?;
     let y = row.checked_sub(area.y + 1)?;
 
     if y == 0 && x < inner_width {
-        Some(x as usize)
+        Some(scroll + x as usize)
     } else {
         None
     }
@@ -688,7 +704,7 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 
 fn handle_event(frame_area: Rect) -> Result<Option<Message>, io::Error> {
     match event::read()? {
-        Event::Key(key) => Ok(Some(Message::KeyPressed(key))),
+        Event::Key(key) if key.kind == KeyEventKind::Press => Ok(Some(Message::KeyPressed(key))),
         Event::Mouse(mouse) => Ok(Some(Message::MousePressed(mouse, frame_area))),
         _ => Ok(None),
     }
@@ -1106,11 +1122,19 @@ mod tests {
     fn input_hit_test_ignores_borders_and_outside_area() {
         let area = Rect::new(0, 7, 82, 3);
 
-        assert_eq!(hit_test_input(area, 1, 8), Some(0));
-        assert_eq!(hit_test_input(area, 0, 8), None);
-        assert_eq!(hit_test_input(area, 81, 8), None);
-        assert_eq!(hit_test_input(area, 1, 7), None);
-        assert_eq!(hit_test_input(area, 1, 9), None);
+        assert_eq!(hit_test_input(area, 0, 1, 8), Some(0));
+        assert_eq!(hit_test_input(area, 0, 0, 8), None);
+        assert_eq!(hit_test_input(area, 0, 81, 8), None);
+        assert_eq!(hit_test_input(area, 0, 1, 7), None);
+        assert_eq!(hit_test_input(area, 0, 1, 9), None);
+    }
+
+    #[test]
+    fn input_hit_test_accounts_for_horizontal_scroll() {
+        let area = Rect::new(0, 7, 10, 3);
+
+        assert_eq!(hit_test_input(area, 5, 1, 8), Some(5));
+        assert_eq!(hit_test_input(area, 5, 8, 8), Some(12));
     }
 
     #[test]
