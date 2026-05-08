@@ -112,28 +112,31 @@ fn map_expression_input_key_to_message(key: KeyEvent) -> Option<Message> {
 }
 
 fn is_expression_input_char(c: char) -> bool {
-    c.is_ascii_hexdigit()
-        || matches!(
-            c,
-            'x' | 'X'
-                | 'o'
-                | 'O'
-                | '+'
-                | '-'
-                | '*'
-                | '/'
-                | '%'
-                | '<'
-                | '>'
-                | '|'
-                | '&'
-                | '^'
-                | '~'
-                | '['
-                | ']'
-                | ':'
-        )
-        || c.is_ascii_whitespace()
+    if c.is_ascii_hexdigit() || c.is_ascii_whitespace() {
+        return true;
+    }
+
+    matches!(
+        c,
+        // Prefixes: 0x, 0o, 0b
+        'x' | 'X' | 'o' | 'O' | 'b' | 'B'
+    ) || matches!(
+        c,
+        // Arithmetic operators
+        '+' | '-' | '*' | '/' | '%'
+    ) || matches!(
+        c,
+        // Bitwise operators
+        '|' | '&' | '^' | '~'
+    ) || matches!(
+        c,
+        // Shift operators
+        '<' | '>'
+    ) || matches!(
+        c,
+        // Bit range syntax
+        '[' | ']' | ':'
+    )
 }
 
 pub fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
@@ -150,7 +153,9 @@ pub fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::ToggleSelectedBit => model.toggle_selected_bit(),
         Message::ToggleBit(bit_index) => model.toggle_bit(bit_index),
         Message::FocusExpressionInput(cursor_index) => model.focus_expression_input(cursor_index),
-        Message::FocusCalculationHistory(selection_index) => model.focus_calculation_history(selection_index),
+        Message::FocusCalculationHistory(selection_index) => {
+            model.focus_calculation_history(selection_index)
+        }
         Message::PrevInputMode => model.prev_input_mode(),
         Message::NextInputMode => model.next_input_mode(),
         Message::PrevInputHistory => model.prev_input_history(),
