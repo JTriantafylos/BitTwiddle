@@ -121,6 +121,13 @@ When selecting history:
 
 ## Usage Notes
 
+BitTwiddle adapts to smaller terminals. When the terminal is narrow, the bit
+grid wraps into shorter rows so individual bits remain visible and clickable.
+When the terminal is short, calculation history and then the help footer are
+hidden before the value, bit grid, or expression input are removed. If the
+terminal is too small for the compact calculator view, BitTwiddle shows a resize
+message instead of drawing clipped controls.
+
 Calculations are done on the active unsigned integer width. Addition,
 subtraction, and multiplication wrap like normal low-level integer operations.
 Division by zero and shifts greater than or equal to the active width are shown

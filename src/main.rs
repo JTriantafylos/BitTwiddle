@@ -23,6 +23,19 @@ mod model;
 use expression::IntegerWidth;
 use model::{BitTwiddleModel, DisplayMode, InputMode, RunningState};
 
+const MIN_TERMINAL_WIDTH: u16 = 20;
+const MIN_TERMINAL_HEIGHT: u16 = 7;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AppLayout {
+    value_areas: Rect,
+    bit_area: Rect,
+    input_area: Rect,
+    expression_history_area: Option<Rect>,
+    help_area: Option<Rect>,
+    bits_per_line: u32,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Message {
     KeyPressed(KeyEvent),
@@ -190,112 +203,120 @@ fn map_mouse_to_message(
         return None;
     }
 
-    let [_, bit_area, input_area, expression_history_area, _] = app_areas(frame_area);
+    let layout = app_layout(
+        model.integer_width,
+        frame_area,
+        footer_help_line_count(model, frame_area.width),
+    )?;
 
-    let input_scroll = expression_input_scroll(model, input_area);
+    let input_scroll = expression_input_scroll(model, layout.input_area);
 
-    hit_test_bit(model.integer_width, bit_area, mouse.column, mouse.row)
-        .map(Message::ToggleBit)
-        .or_else(|| {
-            hit_test_input(input_area, input_scroll, mouse.column, mouse.row)
-                .map(Message::FocusExpressionInput)
-        })
-        .or_else(|| {
-            hit_test_history(
-                expression_history_area,
-                model.calculation_history.len(),
-                mouse.column,
-                mouse.row,
-            )
-            .map(Message::FocusCalculationHistory)
-        })
+    hit_test_bit(
+        model.integer_width,
+        layout.bits_per_line,
+        layout.bit_area,
+        mouse.column,
+        mouse.row,
+    )
+    .map(Message::ToggleBit)
+    .or_else(|| {
+        hit_test_input(layout.input_area, input_scroll, mouse.column, mouse.row)
+            .map(Message::FocusExpressionInput)
+    })
+    .or_else(|| {
+        let expression_history_area = layout.expression_history_area?;
+        hit_test_history(
+            expression_history_area,
+            model.calculation_history.len(),
+            mouse.column,
+            mouse.row,
+        )
+        .map(Message::FocusCalculationHistory)
+    })
 }
 
-fn app_areas(area: Rect) -> [Rect; 5] {
-    Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Length(4),
-        Constraint::Length(3),
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .areas(area)
-}
+fn app_layout(width: IntegerWidth, area: Rect, help_line_count: usize) -> Option<AppLayout> {
+    if area.width < MIN_TERMINAL_WIDTH || area.height < MIN_TERMINAL_HEIGHT {
+        return None;
+    }
 
-fn view(model: &BitTwiddleModel, frame: &mut Frame) {
-    let [
+    let bits_per_line = bits_per_line_for_area(width, area.width);
+    let bit_area_height = bit_line_count(width, bits_per_line) as u16 + 2;
+    let required_core_height = 3 + bit_area_height + 3;
+    if area.height < required_core_height {
+        return None;
+    }
+
+    let remaining_height = area.height - required_core_height;
+    let help_height = (help_line_count as u16).min(remaining_height);
+    let history_height = remaining_height.saturating_sub(help_height);
+
+    let mut y = area.y;
+    let value_areas = Rect::new(area.x, y, area.width, 3);
+    y += value_areas.height;
+    let bit_area = Rect::new(area.x, y, area.width, bit_area_height);
+    y += bit_area.height;
+    let input_area = Rect::new(area.x, y, area.width, 3);
+    y += input_area.height;
+    let expression_history_area =
+        (history_height > 0).then_some(Rect::new(area.x, y, area.width, history_height));
+    y += history_height;
+    let help_area = (help_height > 0).then_some(Rect::new(area.x, y, area.width, help_height));
+
+    Some(AppLayout {
         value_areas,
         bit_area,
         input_area,
         expression_history_area,
         help_area,
-    ] = app_areas(frame.area());
+        bits_per_line,
+    })
+}
 
-    let [value_area, mode_area, width_area] = Layout::horizontal([
-        Constraint::Min(1),
-        Constraint::Length(6),
-        Constraint::Length(12),
-    ])
-    .areas(value_areas);
+fn view(model: &BitTwiddleModel, frame: &mut Frame) {
+    let Some(layout) = app_layout(
+        model.integer_width,
+        frame.area(),
+        footer_help_line_count(model, frame.area().width),
+    ) else {
+        render_terminal_too_small(frame);
+        return;
+    };
+
+    let value_areas = layout.value_areas;
 
     let val_text = Text::from(match &model.error {
         Some(err) => err.to_string(),
         None => model.format_value_readout(),
     });
-    frame.render_widget(
-        Paragraph::new(val_text).block(Block::bordered()).centered(),
-        value_area,
-    );
+    if value_areas.width >= 32 {
+        let [value_area, mode_area, width_area] = Layout::horizontal([
+            Constraint::Min(1),
+            Constraint::Length(6),
+            Constraint::Length(12),
+        ])
+        .areas(value_areas);
+        frame.render_widget(
+            Paragraph::new(val_text).block(Block::bordered()).centered(),
+            value_area,
+        );
+        frame.render_widget(display_mode_indicator(&model.display_mode), mode_area);
+        frame.render_widget(width_indicator(model.integer_width), width_area);
+    } else {
+        let title = format!(
+            " {} {} ",
+            display_mode_label(&model.display_mode),
+            model.integer_width.bits()
+        );
+        frame.render_widget(
+            Paragraph::new(val_text)
+                .block(Block::bordered().title(title))
+                .centered(),
+            value_areas,
+        );
+    }
 
-    let dec_indicator = Span::styled(
-        "D",
-        match model.display_mode {
-            DisplayMode::Decimal => Style::default().underlined(),
-            _ => Style::default().dim(),
-        },
-    );
-    let hex_indicator = Span::styled(
-        "H",
-        match model.display_mode {
-            DisplayMode::Hex => Style::default().underlined(),
-            _ => Style::default().dim(),
-        },
-    );
-    let signed_indicator = Span::styled(
-        "S",
-        match model.display_mode {
-            DisplayMode::Signed => Style::default().underlined(),
-            _ => Style::default().dim(),
-        },
-    );
-    let oct_indicator = Span::styled(
-        "O",
-        match model.display_mode {
-            DisplayMode::Octal => Style::default().underlined(),
-            _ => Style::default().dim(),
-        },
-    );
-    let mode_widget = Paragraph::new(Line::from(vec![
-        dec_indicator,
-        signed_indicator,
-        hex_indicator,
-        oct_indicator,
-    ]))
-    .block(Block::bordered());
-    frame.render_widget(mode_widget, mode_area);
-
-    let width_indicator = Paragraph::new(Line::from(vec![
-        width_span(model.integer_width, IntegerWidth::Eight, "8"),
-        Span::raw(" "),
-        width_span(model.integer_width, IntegerWidth::Sixteen, "16"),
-        Span::raw(" "),
-        width_span(model.integer_width, IntegerWidth::ThirtyTwo, "32"),
-        Span::raw(" "),
-        width_span(model.integer_width, IntegerWidth::SixtyFour, "64"),
-    ]))
-    .block(Block::bordered());
-    frame.render_widget(width_indicator, width_area);
-
+    let input_area = layout.input_area;
     let input_scroll = expression_input_scroll(model, input_area);
     let visible_input = &model.expression_input_text[input_scroll..];
     let input = Paragraph::new(visible_input).block(
@@ -329,6 +350,7 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
         .add_modifier(Modifier::REVERSED);
     let bit_visualization_text = bit_visualization_lines(
         model.integer_width,
+        layout.bits_per_line,
         display_value,
         bit_manipulation_mode,
         selected_bit_index,
@@ -349,57 +371,143 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     let bit_visualization = Paragraph::new(bit_visualization_text)
         .block(bit_visualization_block)
         .centered();
-    frame.render_widget(bit_visualization, bit_area);
+    frame.render_widget(bit_visualization, layout.bit_area);
 
-    let expression_history = List::new(
-        model
-            .calculation_history
-            .iter()
-            .rev()
-            .map(|e| ListItem::new(model.format_calculation_history_entry(e))),
-    )
-    .block(
-        Block::bordered()
-            .border_style(match model.input_mode {
-                InputMode::HistorySelect => Style::default().fg(Color::Yellow),
-                _ => Style::default(),
-            })
-            .title(calculation_history_title(model)),
-    )
-    .highlight_style(
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::REVERSED),
-    );
-    let mut expression_history_state = calculation_history_list_state(model);
-    frame.render_stateful_widget(
-        expression_history,
-        expression_history_area,
-        &mut expression_history_state,
-    );
-    if calculation_history_overflows(model, expression_history_area) {
-        let mut scrollbar_state =
-            calculation_history_scrollbar_state(model, expression_history_area);
-        frame.render_stateful_widget(
-            Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_style(Style::default().dim())
-                .thumb_style(Style::default().fg(Color::Yellow)),
-            calculation_history_scrollbar_area(expression_history_area),
-            &mut scrollbar_state,
+    if let Some(expression_history_area) = layout.expression_history_area {
+        let expression_history = List::new(
+            model
+                .calculation_history
+                .iter()
+                .rev()
+                .map(|e| ListItem::new(model.format_calculation_history_entry(e))),
+        )
+        .block(
+            Block::bordered()
+                .border_style(match model.input_mode {
+                    InputMode::HistorySelect => Style::default().fg(Color::Yellow),
+                    _ => Style::default(),
+                })
+                .title(calculation_history_title(model)),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::REVERSED),
         );
+        let mut expression_history_state = calculation_history_list_state(model);
+        frame.render_stateful_widget(
+            expression_history,
+            expression_history_area,
+            &mut expression_history_state,
+        );
+        if calculation_history_overflows(model, expression_history_area) {
+            let mut scrollbar_state =
+                calculation_history_scrollbar_state(model, expression_history_area);
+            frame.render_stateful_widget(
+                Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                    .begin_symbol(None)
+                    .end_symbol(None)
+                    .track_style(Style::default().dim())
+                    .thumb_style(Style::default().fg(Color::Yellow)),
+                calculation_history_scrollbar_area(expression_history_area),
+                &mut scrollbar_state,
+            );
+        }
     }
 
-    let help_text = footer_help_text(model);
-    frame.render_widget(Paragraph::new(help_text).centered(), help_area);
+    if let Some(help_area) = layout.help_area {
+        let help_text = footer_help_text(model, help_area.width);
+        frame.render_widget(Paragraph::new(help_text).centered(), help_area);
+    }
 
     if model.show_quit_confirmation {
         render_quit_confirmation(frame);
     }
 }
 
-fn footer_help_text(model: &BitTwiddleModel) -> Line<'static> {
+fn render_terminal_too_small(frame: &mut Frame) {
+    let text = Text::from(vec![
+        Line::from("BitTwiddle"),
+        Line::from("Resize terminal"),
+    ]);
+    frame.render_widget(Paragraph::new(text).centered(), frame.area());
+}
+
+fn display_mode_indicator(display_mode: &DisplayMode) -> Paragraph<'static> {
+    let dec_indicator = Span::styled(
+        "D",
+        match display_mode {
+            DisplayMode::Decimal => Style::default().underlined(),
+            _ => Style::default().dim(),
+        },
+    );
+    let hex_indicator = Span::styled(
+        "H",
+        match display_mode {
+            DisplayMode::Hex => Style::default().underlined(),
+            _ => Style::default().dim(),
+        },
+    );
+    let signed_indicator = Span::styled(
+        "S",
+        match display_mode {
+            DisplayMode::Signed => Style::default().underlined(),
+            _ => Style::default().dim(),
+        },
+    );
+    let oct_indicator = Span::styled(
+        "O",
+        match display_mode {
+            DisplayMode::Octal => Style::default().underlined(),
+            _ => Style::default().dim(),
+        },
+    );
+
+    Paragraph::new(Line::from(vec![
+        dec_indicator,
+        signed_indicator,
+        hex_indicator,
+        oct_indicator,
+    ]))
+    .block(Block::bordered())
+}
+
+fn width_indicator(integer_width: IntegerWidth) -> Paragraph<'static> {
+    Paragraph::new(Line::from(vec![
+        width_span(integer_width, IntegerWidth::Eight, "8"),
+        Span::raw(" "),
+        width_span(integer_width, IntegerWidth::Sixteen, "16"),
+        Span::raw(" "),
+        width_span(integer_width, IntegerWidth::ThirtyTwo, "32"),
+        Span::raw(" "),
+        width_span(integer_width, IntegerWidth::SixtyFour, "64"),
+    ]))
+    .block(Block::bordered())
+}
+
+fn display_mode_label(display_mode: &DisplayMode) -> &'static str {
+    match display_mode {
+        DisplayMode::Decimal => "D",
+        DisplayMode::Signed => "S",
+        DisplayMode::Hex => "H",
+        DisplayMode::Octal => "O",
+    }
+}
+
+fn footer_help_text(model: &BitTwiddleModel, width: u16) -> Text<'static> {
+    Text::from(
+        footer_control_lines(&footer_controls(model), width)
+            .into_iter()
+            .map(footer_control_line)
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn footer_help_line_count(model: &BitTwiddleModel, width: u16) -> usize {
+    footer_control_lines(&footer_controls(model), width).len()
+}
+
+fn footer_controls(model: &BitTwiddleModel) -> Vec<(&'static str, &'static str)> {
     let mut controls = vec![
         ("Tab", "Mode"),
         ("m/M", "Display"),
@@ -428,6 +536,10 @@ fn footer_help_text(model: &BitTwiddleModel) -> Line<'static> {
         controls.push(("Esc", "Dismiss"));
     }
 
+    controls
+}
+
+fn footer_control_line(controls: Vec<(&'static str, &'static str)>) -> Line<'static> {
     let key_style = Style::default().fg(Color::Yellow).bold();
     let label_style = Style::default().dim();
     let separator_style = Style::default().dim();
@@ -444,6 +556,43 @@ fn footer_help_text(model: &BitTwiddleModel) -> Line<'static> {
     }
 
     Line::from(spans)
+}
+
+fn footer_control_lines(
+    controls: &[(&'static str, &'static str)],
+    width: u16,
+) -> Vec<Vec<(&'static str, &'static str)>> {
+    let width = width as usize;
+    let mut lines = Vec::new();
+    let mut current_line = Vec::new();
+
+    for control in controls {
+        let mut candidate = current_line.clone();
+        candidate.push(*control);
+        if !current_line.is_empty() && footer_controls_width(&candidate) > width {
+            lines.push(current_line);
+            current_line = vec![*control];
+        } else {
+            current_line = candidate;
+        }
+    }
+
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+
+    lines
+}
+
+fn footer_controls_width(controls: &[(&str, &str)]) -> usize {
+    controls
+        .iter()
+        .enumerate()
+        .map(|(index, (key, label))| {
+            let separator_width = if index > 0 { "  |  ".len() } else { 0 };
+            separator_width + key.len() + 1 + label.len()
+        })
+        .sum()
 }
 
 fn calculation_history_list_state(model: &BitTwiddleModel) -> ListState {
@@ -510,16 +659,17 @@ fn width_span<'a>(
 
 fn bit_visualization_lines(
     width: IntegerWidth,
+    bits_per_line: u32,
     display_value: u64,
     bit_manipulation_mode: bool,
     selected_bit_index: usize,
     selected_bit_style: Style,
 ) -> Vec<Line<'static>> {
-    (0..bit_line_count(width))
+    (0..bit_line_count(width, bits_per_line))
         .rev()
         .map(|line_num| {
             Line::from(
-                bit_words_for_line(width, line_num)
+                bit_words_for_line(width, bits_per_line, line_num)
                     .rev()
                     .flat_map(|(word_start, word_end)| {
                         let mut spans = vec![
@@ -556,41 +706,59 @@ fn bit_visualization_lines(
         .collect()
 }
 
-fn bit_line_count(width: IntegerWidth) -> usize {
-    width.bits().div_ceil(32) as usize
+fn bits_per_line_for_area(width: IntegerWidth, area_width: u16) -> u32 {
+    let inner_width = area_width.saturating_sub(2);
+    [32, 16, 8, 4]
+        .into_iter()
+        .find(|bits_per_line| {
+            (0..bit_line_count(width, *bits_per_line))
+                .all(|line_num| bit_line_width(width, *bits_per_line, line_num) <= inner_width)
+        })
+        .unwrap_or(4)
+}
+
+fn bit_line_count(width: IntegerWidth, bits_per_line: u32) -> usize {
+    width.bits().div_ceil(bits_per_line) as usize
 }
 
 fn bit_words_for_line(
     width: IntegerWidth,
+    bits_per_line: u32,
     line_num: usize,
 ) -> impl DoubleEndedIterator<Item = (u32, u32)> {
-    let line_start = line_num as u32 * 32;
-    let line_end = ((line_num as u32 + 1) * 32).min(width.bits());
+    let line_start = line_num as u32 * bits_per_line;
+    let line_end = ((line_num as u32 + 1) * bits_per_line).min(width.bits());
     (line_start..line_end).step_by(16).map(move |word_start| {
         let word_end = (word_start + 16).min(line_end);
         (word_start, word_end)
     })
 }
 
-fn hit_test_bit(width: IntegerWidth, area: Rect, column: u16, row: u16) -> Option<usize> {
+fn hit_test_bit(
+    width: IntegerWidth,
+    bits_per_line: u32,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<usize> {
     let inner_width = area.width.saturating_sub(2);
     let x = column.checked_sub(area.x + 1)?;
     let y = row.checked_sub(area.y + 1)?;
 
-    let line_count = bit_line_count(width);
+    let line_count = bit_line_count(width, bits_per_line);
     if y as usize >= line_count || x >= inner_width {
         return None;
     }
 
     let line_num = line_count - 1 - y as usize;
-    let line_width = bit_line_width(width, line_num);
+    let line_width = bit_line_width(width, bits_per_line, line_num);
     let line_start = inner_width.saturating_sub(line_width) / 2;
     let line_column = x.checked_sub(line_start)?;
     if line_column >= line_width {
         return None;
     }
 
-    bit_index_at_line_column(width, line_num, line_column)
+    bit_index_at_line_column(width, bits_per_line, line_num, line_column)
 }
 
 fn expression_input_scroll(model: &BitTwiddleModel, area: Rect) -> usize {
@@ -631,9 +799,9 @@ fn hit_test_history(
     Some((index < history_len).then_some(index))
 }
 
-fn bit_line_width(width: IntegerWidth, line_num: usize) -> u16 {
+fn bit_line_width(width: IntegerWidth, bits_per_line: u32, line_num: usize) -> u16 {
     let mut line_width = 0;
-    for (word_start, word_end) in bit_words_for_line(width, line_num) {
+    for (word_start, word_end) in bit_words_for_line(width, bits_per_line, line_num) {
         line_width += (word_end - 1).to_string().len() as u16 + 2;
         for bit_index in (word_start..word_end).rev() {
             line_width += 1;
@@ -648,11 +816,12 @@ fn bit_line_width(width: IntegerWidth, line_num: usize) -> u16 {
 
 fn bit_index_at_line_column(
     width: IntegerWidth,
+    bits_per_line: u32,
     line_num: usize,
     target_column: u16,
 ) -> Option<usize> {
     let mut column = 0;
-    for (word_start, word_end) in bit_words_for_line(width, line_num).rev() {
+    for (word_start, word_end) in bit_words_for_line(width, bits_per_line, line_num).rev() {
         column += (word_end - 1).to_string().len() as u16 + 2;
 
         for bit_index in (word_start..word_end).rev() {
@@ -762,7 +931,7 @@ mod tests {
     }
 
     fn hit_test_bit(area: Rect, column: u16, row: u16) -> Option<usize> {
-        super::hit_test_bit(IntegerWidth::SixtyFour, area, column, row)
+        super::hit_test_bit(IntegerWidth::SixtyFour, 32, area, column, row)
     }
 
     fn history_entry(value: u64) -> model::CalculationHistoryEntry {
@@ -1001,7 +1170,7 @@ mod tests {
             ..Default::default()
         };
 
-        let rendered = rendered_view_text(&model, 82, 14);
+        let rendered = rendered_view_text(&model, 82, 15);
 
         assert!(rendered.contains("1 + 1 = 2"));
         assert!(!rendered.contains("10 + 10 = 20"));
@@ -1009,8 +1178,12 @@ mod tests {
 
     #[test]
     fn scrollbar_appears_only_when_history_overflows() {
-        let frame_area = Rect::new(0, 0, 82, 14);
-        let history_area = app_areas(frame_area)[3];
+        let frame_area = Rect::new(0, 0, 82, 17);
+        let help_line_count = footer_help_line_count(&BitTwiddleModel::default(), frame_area.width);
+        let history_area = app_layout(IntegerWidth::SixtyFour, frame_area, help_line_count)
+            .unwrap()
+            .expression_history_area
+            .unwrap();
         let scrollbar_area = calculation_history_scrollbar_area(history_area);
         let scrollbar_position = Position::new(scrollbar_area.x, scrollbar_area.y);
         let overflowing = BitTwiddleModel {
@@ -1041,6 +1214,122 @@ mod tests {
                 frame_area.height,
                 scrollbar_position
             )
+        );
+    }
+
+    #[test]
+    fn normal_size_uses_full_bit_rows_and_all_sections() {
+        let layout = app_layout(IntegerWidth::SixtyFour, Rect::new(0, 0, 82, 14), 1).unwrap();
+
+        assert_eq!(layout.value_areas, Rect::new(0, 0, 82, 3));
+        assert_eq!(layout.bit_area, Rect::new(0, 3, 82, 4));
+        assert_eq!(layout.input_area, Rect::new(0, 7, 82, 3));
+        assert_eq!(layout.bits_per_line, 32);
+        assert!(layout.expression_history_area.is_some());
+        assert!(layout.help_area.is_some());
+    }
+
+    #[test]
+    fn narrow_terminal_wraps_bits_to_shorter_rows() {
+        let layout = app_layout(IntegerWidth::SixtyFour, Rect::new(0, 0, 40, 16), 1).unwrap();
+        let rendered = rendered_view_text(&BitTwiddleModel::default(), 40, 16);
+
+        assert_eq!(layout.bits_per_line, 8);
+        assert_eq!(
+            bit_line_count(IntegerWidth::SixtyFour, layout.bits_per_line),
+            8
+        );
+        assert!(bit_line_width(IntegerWidth::SixtyFour, layout.bits_per_line, 7) <= 38);
+        assert!(rendered.contains("Bits"));
+        assert!(!rendered.contains("History"));
+    }
+
+    #[test]
+    fn footer_help_text_wraps_controls_to_fit_width() {
+        let model = BitTwiddleModel {
+            input_mode: InputMode::ExpressionInput,
+            ..Default::default()
+        };
+        let footer = footer_help_text(&model, 40);
+        let lines = footer
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(footer_help_line_count(&model, 40), 3);
+        assert!(lines.iter().all(|line| line.len() <= 40));
+        assert!(lines.join("\n").contains("Ctrl+C Clear"));
+        assert!(lines.join("\n").contains("Left/Right Move"));
+    }
+
+    #[test]
+    fn skinny_terminal_help_uses_multiple_lines_when_height_allows() {
+        let layout = app_layout(
+            IntegerWidth::SixtyFour,
+            Rect::new(0, 0, 40, 19),
+            footer_help_line_count(&BitTwiddleModel::default(), 40),
+        )
+        .unwrap();
+        let rendered = rendered_view_text(&BitTwiddleModel::default(), 40, 19);
+
+        assert_eq!(layout.help_area.unwrap().height, 3);
+        assert!(rendered.contains("Tab Mode"));
+        assert!(rendered.contains("Ctrl+C Clear"));
+        assert!(rendered.contains("Left/Right Move"));
+    }
+
+    #[test]
+    fn short_terminal_hides_history_before_core_controls() {
+        let layout = app_layout(IntegerWidth::SixtyFour, Rect::new(0, 0, 82, 10), 1).unwrap();
+        let rendered = rendered_view_text(&BitTwiddleModel::default(), 82, 10);
+
+        assert_eq!(layout.bits_per_line, 32);
+        assert_eq!(layout.expression_history_area, None);
+        assert_eq!(layout.help_area, None);
+        assert!(rendered.contains("Bits"));
+        assert!(rendered.contains("Input"));
+        assert!(!rendered.contains("History"));
+    }
+
+    #[test]
+    fn too_small_terminal_shows_resize_message() {
+        let rendered = rendered_view_text(&BitTwiddleModel::default(), 15, 8);
+
+        assert!(rendered.contains("BitTwiddle"));
+        assert!(rendered.contains("Resize terminal"));
+        assert!(!rendered.contains("Input"));
+    }
+
+    #[test]
+    fn narrow_bit_hit_test_matches_wrapped_rows() {
+        let frame_area = Rect::new(0, 0, 40, 16);
+        let layout = app_layout(IntegerWidth::SixtyFour, frame_area, 1).unwrap();
+        let top_row = layout.bit_area.y + 1;
+        let leftmost_top_bit = layout.bit_area.x + 13;
+
+        assert_eq!(
+            super::hit_test_bit(
+                IntegerWidth::SixtyFour,
+                layout.bits_per_line,
+                layout.bit_area,
+                leftmost_top_bit,
+                top_row,
+            ),
+            Some(63)
+        );
+        assert_eq!(
+            map_mouse_to_message(
+                &BitTwiddleModel::default(),
+                left_click(leftmost_top_bit, top_row),
+                frame_area,
+            ),
+            Some(Message::ToggleBit(63))
         );
     }
 
@@ -1085,15 +1374,21 @@ mod tests {
         let area = Rect::new(0, 0, 82, 4);
 
         assert_eq!(
-            super::hit_test_bit(IntegerWidth::Eight, area, 33, 1),
+            super::hit_test_bit(IntegerWidth::Eight, 32, area, 33, 1),
             Some(7)
         );
         assert_eq!(
-            super::hit_test_bit(IntegerWidth::Eight, area, 48, 1),
+            super::hit_test_bit(IntegerWidth::Eight, 32, area, 48, 1),
             Some(0)
         );
-        assert_eq!(super::hit_test_bit(IntegerWidth::Eight, area, 5, 1), None);
-        assert_eq!(super::hit_test_bit(IntegerWidth::Eight, area, 34, 2), None);
+        assert_eq!(
+            super::hit_test_bit(IntegerWidth::Eight, 32, area, 5, 1),
+            None
+        );
+        assert_eq!(
+            super::hit_test_bit(IntegerWidth::Eight, 32, area, 34, 2),
+            None
+        );
     }
 
     #[test]
@@ -1110,7 +1405,7 @@ mod tests {
     #[test]
     fn left_click_on_input_maps_to_focus_input_with_cursor_position() {
         let model = BitTwiddleModel::default();
-        let frame_area = Rect::new(0, 0, 82, 16);
+        let frame_area = Rect::new(0, 0, 82, 17);
 
         assert_eq!(
             map_mouse_to_message(&model, left_click(6, 8), frame_area),
@@ -1161,7 +1456,7 @@ mod tests {
             calculation_history: vec![history_entry(1), history_entry(2)],
             ..Default::default()
         };
-        let frame_area = Rect::new(0, 0, 82, 16);
+        let frame_area = Rect::new(0, 0, 82, 17);
 
         assert_eq!(
             map_mouse_to_message(&model, left_click(1, 13), frame_area),
