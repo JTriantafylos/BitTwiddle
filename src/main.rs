@@ -233,8 +233,8 @@ fn view(model: &BitTwiddleModel, frame: &mut Frame) {
 
     let [value_area, mode_area, width_area] = Layout::horizontal([
         Constraint::Min(1),
-        Constraint::Length(7),
-        Constraint::Length(14),
+        Constraint::Length(6),
+        Constraint::Length(12),
     ])
     .areas(value_areas);
 
