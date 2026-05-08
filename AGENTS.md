@@ -6,9 +6,10 @@ Guidance for coding agents working on BitTwiddle.
 
 BitTwiddle is a small Rust terminal UI for inspecting and manipulating unsigned
 integer values in 8-bit, 16-bit, 32-bit, and 64-bit modes.
-It is implemented as a Ratatui app with the event loop and rendering in
-`src/main.rs`, model state and state transitions in `src/model.rs`, and
-expression parsing/computation in `src/expression.rs`.
+It is implemented as a Ratatui app with the event loop and terminal event
+mapping in `src/main.rs`, rendering and layout helpers in `src/view.rs`, model
+state and state transitions in `src/model.rs`, and expression
+parsing/computation in `src/expression.rs`.
 
 Core behavior:
 
@@ -32,8 +33,9 @@ Core behavior:
 ## Repository Layout
 
 - `Cargo.toml`: package metadata and dependencies.
-- `src/main.rs`: application entry point, terminal event mapping, update
-  dispatch, and rendering.
+- `src/main.rs`: application entry point, terminal event mapping, and update
+  dispatch.
+- `src/view.rs`: rendering, layout, scrolling, and hit-testing helpers.
 - `src/model.rs`: model state, state transitions, input/history behavior, and
   display/history formatting helpers.
 - `src/expression.rs`: expression parsing, operators, and computation logic.
@@ -62,7 +64,7 @@ The current code follows a simple Elm-style loop:
 - `Message` represents events and internal state transitions.
 - `handle_event` maps terminal events into messages.
 - `update` mutates the model and can return follow-up messages.
-- `view` renders the current model with Ratatui widgets.
+- `view` in `src/view.rs` renders the current model with Ratatui widgets.
 - `main` initializes Ratatui, runs the draw/event/update loop, then restores the
   terminal.
 
