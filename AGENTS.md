@@ -6,10 +6,10 @@ Guidance for coding agents working on BitTwiddle.
 
 BitTwiddle is a small Rust terminal UI for inspecting and manipulating unsigned
 integer values in 8-bit, 16-bit, 32-bit, and 64-bit modes.
-It is implemented as a Ratatui app with the event loop and terminal event
-mapping in `src/main.rs`, rendering and layout helpers in `src/view.rs`, model
-state and state transitions in `src/model.rs`, and expression
-parsing/computation in `src/expression.rs`.
+It is implemented as a Ratatui app with the terminal event loop in
+`src/main.rs`, shared message/update dispatch in `src/lib.rs`, rendering and
+layout helpers in `src/view.rs`, model state and state transitions in
+`src/model.rs`, and expression parsing/computation in `src/expression.rs`.
 
 Core behavior:
 
@@ -33,15 +33,17 @@ Core behavior:
 ## Repository Layout
 
 - `Cargo.toml`: package metadata and dependencies.
-- `src/main.rs`: application entry point, terminal event mapping, and update
-  dispatch.
+- `src/lib.rs`: library crate root, shared `Message` type, terminal key/mouse
+  mapping, and update dispatch.
+- `src/main.rs`: binary entry point, terminal lifecycle, event reading, and the
+  draw/update loop.
 - `src/view.rs`: rendering, layout, scrolling, and hit-testing helpers.
 - `src/model.rs`: model state, state transitions, input/history behavior, and
   display/history formatting helpers.
 - `src/expression.rs`: expression parsing, operators, and computation logic.
 
-There is no library crate yet. Unit tests currently live alongside the binary
-modules.
+The package has both a library crate and a binary target. Unit tests live
+alongside the library modules; `src/main.rs` should stay thin.
 
 ## Commands
 
@@ -62,8 +64,8 @@ The current code follows a simple Elm-style loop:
 
 - `BitTwiddleModel` holds all app state.
 - `Message` represents events and internal state transitions.
-- `handle_event` maps terminal events into messages.
-- `update` mutates the model and can return follow-up messages.
+- `handle_event` in `src/main.rs` reads terminal events into raw messages.
+- `update` in `src/lib.rs` mutates the model and can return follow-up messages.
 - `view` in `src/view.rs` renders the current model with Ratatui widgets.
 - `main` initializes Ratatui, runs the draw/event/update loop, then restores the
   terminal.

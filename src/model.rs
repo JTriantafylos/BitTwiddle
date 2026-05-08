@@ -72,7 +72,7 @@ pub(crate) struct CalculationHistoryEntry {
 }
 
 #[derive(Default)]
-pub(crate) struct BitTwiddleModel {
+pub struct BitTwiddleModel {
     pub(crate) running_state: RunningState,
     pub(crate) show_quit_confirmation: bool,
     pub(crate) value: u64,
@@ -90,6 +90,26 @@ pub(crate) struct BitTwiddleModel {
 }
 
 impl BitTwiddleModel {
+    pub fn is_running(&self) -> bool {
+        self.running_state == RunningState::Running
+    }
+
+    pub(crate) fn show_quit_confirmation(&self) -> bool {
+        self.show_quit_confirmation
+    }
+
+    pub(crate) fn input_mode(&self) -> &InputMode {
+        &self.input_mode
+    }
+
+    pub(crate) fn integer_width(&self) -> IntegerWidth {
+        self.integer_width
+    }
+
+    pub(crate) fn calculation_history_len(&self) -> usize {
+        self.calculation_history.len()
+    }
+
     pub(crate) fn clear_input(&mut self) -> Option<Message> {
         self.value = 0;
         self.error = None;

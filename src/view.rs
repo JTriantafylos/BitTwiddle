@@ -69,7 +69,7 @@ pub(crate) fn app_layout(
     })
 }
 
-pub(crate) fn view(model: &BitTwiddleModel, frame: &mut Frame) {
+pub fn view(model: &BitTwiddleModel, frame: &mut Frame) {
     let Some(layout) = app_layout(
         model.integer_width,
         frame.area(),
