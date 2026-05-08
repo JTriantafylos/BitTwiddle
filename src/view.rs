@@ -397,16 +397,15 @@ pub(crate) fn calculation_history_list_state(model: &BitTwiddleModel) -> ListSta
 }
 
 pub(crate) fn calculation_history_title(model: &BitTwiddleModel) -> String {
-    if model.input_mode == InputMode::HistorySelect {
-        if let Some(selection_index) = model.calculation_history_selection_index {
-            if selection_index < model.calculation_history.len() {
-                return format!(
-                    "History {}/{}",
-                    selection_index + 1,
-                    model.calculation_history.len()
-                );
-            }
-        }
+    if model.input_mode == InputMode::HistorySelect
+        && let Some(selection_index) = model.calculation_history_selection_index
+        && selection_index < model.calculation_history.len()
+    {
+        return format!(
+            "History {}/{}",
+            selection_index + 1,
+            model.calculation_history.len()
+        );
     }
 
     "History".to_string()

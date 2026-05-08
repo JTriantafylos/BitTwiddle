@@ -242,8 +242,8 @@ fn main() -> Result<(), io::Error> {
             let mut current_msg = handle_event(frame_area)?;
 
             // Process updates as long as they return a non-None message
-            while current_msg.is_some() {
-                current_msg = update(&mut model, current_msg.unwrap());
+            while let Some(msg) = current_msg {
+                current_msg = update(&mut model, msg);
             }
         }
 

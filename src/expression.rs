@@ -134,11 +134,11 @@ macro_rules! unsigned_literal_pattern {
 /// Returns the underlying integer parse error for empty, invalid, or overflowing
 /// literals.
 fn parse_unsigned(s: &str) -> Result<u64, std::num::ParseIntError> {
-    if let Some(rest) = s.to_lowercase().strip_prefix("0x") {
+    if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         u64::from_str_radix(rest, 16)
-    } else if let Some(rest) = s.to_lowercase().strip_prefix("0o") {
+    } else if let Some(rest) = s.strip_prefix("0o").or_else(|| s.strip_prefix("0O")) {
         u64::from_str_radix(rest, 8)
-    } else if let Some(rest) = s.to_lowercase().strip_prefix("0b") {
+    } else if let Some(rest) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {
         u64::from_str_radix(rest, 2)
     } else {
         #[allow(clippy::from_str_radix_10)] // Explicitly state base 10 for completeness sake.
