@@ -7,11 +7,13 @@ pub mod expression;
 pub mod model;
 pub mod view;
 
-use model::{BitTwiddleModel, InputMode};
+use model::{BitTwiddleModel, DisplayMode, InputMode};
 use view::{
-    app_layout, expression_input_scroll, footer_help_line_count, hit_test_bit, hit_test_history,
-    hit_test_input,
+    app_layout, expression_input_scroll, footer_help_line_count, hit_test_bit,
+    hit_test_display_mode, hit_test_history, hit_test_input, hit_test_width,
 };
+
+use expression::IntegerWidth;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Message {
@@ -35,8 +37,10 @@ pub enum Message {
     PrevCalculationHistory,
     NextCalculationHistory,
     CopySelectedCalculationHistory,
+    SelectDisplayMode(DisplayMode),
     PrevDisplayMode,
     NextDisplayMode,
+    SelectIntegerWidth(IntegerWidth),
     PrevIntegerWidth,
     NextIntegerWidth,
     DismissError,
@@ -163,8 +167,10 @@ pub fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::PrevCalculationHistory => model.prev_calculation_history(),
         Message::NextCalculationHistory => model.next_calculation_history(),
         Message::CopySelectedCalculationHistory => model.copy_selected_calculation_history(),
+        Message::SelectDisplayMode(display_mode) => model.select_display_mode(display_mode),
         Message::PrevDisplayMode => model.prev_display_mode(),
         Message::NextDisplayMode => model.next_display_mode(),
+        Message::SelectIntegerWidth(integer_width) => model.select_integer_width(integer_width),
         Message::PrevIntegerWidth => model.prev_integer_width(),
         Message::NextIntegerWidth => model.next_integer_width(),
         Message::DismissError => model.dismiss_error(),
@@ -191,28 +197,40 @@ pub fn map_mouse_to_message(
 
     let input_scroll = expression_input_scroll(model, layout.input_area);
 
-    hit_test_bit(
-        model.integer_width(),
-        layout.bits_per_line,
-        layout.bit_area,
-        mouse.column,
-        mouse.row,
-    )
-    .map(Message::ToggleBit)
-    .or_else(|| {
-        hit_test_input(layout.input_area, input_scroll, mouse.column, mouse.row)
-            .map(Message::FocusExpressionInput)
-    })
-    .or_else(|| {
-        let expression_history_area = layout.expression_history_area?;
-        hit_test_history(
-            expression_history_area,
-            model.calculation_history_len(),
-            mouse.column,
-            mouse.row,
-        )
-        .map(Message::FocusCalculationHistory)
-    })
+    layout
+        .mode_area
+        .and_then(|area| hit_test_display_mode(area, mouse.column))
+        .map(Message::SelectDisplayMode)
+        .or_else(|| {
+            layout
+                .width_area
+                .and_then(|area| hit_test_width(area, mouse.column))
+                .map(Message::SelectIntegerWidth)
+        })
+        .or_else(|| {
+            hit_test_bit(
+                model.integer_width(),
+                layout.bits_per_line,
+                layout.bit_area,
+                mouse.column,
+                mouse.row,
+            )
+            .map(Message::ToggleBit)
+        })
+        .or_else(|| {
+            hit_test_input(layout.input_area, input_scroll, mouse.column, mouse.row)
+                .map(Message::FocusExpressionInput)
+        })
+        .or_else(|| {
+            let expression_history_area = layout.expression_history_area?;
+            hit_test_history(
+                expression_history_area,
+                model.calculation_history_len(),
+                mouse.column,
+                mouse.row,
+            )
+            .map(Message::FocusCalculationHistory)
+        })
 }
 
 #[cfg(test)]
@@ -359,6 +377,63 @@ mod tests {
         assert_eq!(
             map_mouse_to_message(&model, left_click(1, 11), frame_area),
             Some(Message::FocusCalculationHistory(Some(0)))
+        );
+    }
+
+    #[test]
+    fn mouse_mapping_targets_display_mode_area() {
+        let frame_area = Rect::new(0, 0, 82, 17);
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(65, 1), frame_area),
+            Some(Message::SelectDisplayMode(DisplayMode::Decimal))
+        );
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(66, 1), frame_area),
+            Some(Message::SelectDisplayMode(DisplayMode::Signed))
+        );
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(67, 1), frame_area),
+            Some(Message::SelectDisplayMode(DisplayMode::Hex))
+        );
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(68, 1), frame_area),
+            Some(Message::SelectDisplayMode(DisplayMode::Octal))
+        );
+    }
+
+    #[test]
+    fn mouse_mapping_targets_integer_width_area() {
+        let frame_area = Rect::new(0, 0, 82, 17);
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(71, 1), frame_area),
+            Some(Message::SelectIntegerWidth(IntegerWidth::Eight))
+        );
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(73, 1), frame_area),
+            Some(Message::SelectIntegerWidth(IntegerWidth::Sixteen))
+        );
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(76, 1), frame_area),
+            Some(Message::SelectIntegerWidth(IntegerWidth::ThirtyTwo))
+        );
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(79, 1), frame_area),
+            Some(Message::SelectIntegerWidth(IntegerWidth::SixtyFour))
+        );
+    }
+
+    #[test]
+    fn mouse_mapping_ignores_display_mode_and_width_in_narrow_terminals() {
+        let frame_area = Rect::new(0, 0, 30, 12);
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(1, 1), frame_area),
+            None
         );
     }
 

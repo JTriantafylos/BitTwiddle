@@ -120,6 +120,13 @@ focused helpers or small methods before adding larger abstractions.
   - Space toggles the selected bit.
 - Left-clicking a bit in the bit manipulation area toggles that bit and enters
   bit manipulation mode.
+- Left-clicking a display mode indicator (D/S/H/O) in the top row selects that
+  display mode.
+- Left-clicking an integer width indicator (8/16/32/64) in the top row selects
+  that integer width.
+- These click-to-switch areas are only present when the terminal is at least 32
+  characters wide; on narrower terminals the display mode and width are shown
+  compactly in the value area title and are not clickable.
 - In history selection mode:
   - Up/down move the selected calculation history entry.
   - Enter copies the selected calculation history entry into expression input.

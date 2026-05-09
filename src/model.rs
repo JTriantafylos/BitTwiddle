@@ -11,7 +11,7 @@ pub(crate) enum RunningState {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) enum DisplayMode {
+pub enum DisplayMode {
     #[default]
     Decimal,
     Signed,
@@ -250,6 +250,11 @@ impl BitTwiddleModel {
         }
     }
 
+    pub(crate) fn select_display_mode(&mut self, display_mode: DisplayMode) -> Option<Message> {
+        self.display_mode = display_mode;
+        None
+    }
+
     pub(crate) fn prev_display_mode(&mut self) -> Option<Message> {
         self.display_mode = self.display_mode.prev();
         None
@@ -257,6 +262,11 @@ impl BitTwiddleModel {
 
     pub(crate) fn next_display_mode(&mut self) -> Option<Message> {
         self.display_mode = self.display_mode.next();
+        None
+    }
+
+    pub(crate) fn select_integer_width(&mut self, integer_width: IntegerWidth) -> Option<Message> {
+        self.set_integer_width(integer_width);
         None
     }
 
@@ -1071,6 +1081,46 @@ mod tests {
 
         assert_eq!(model.next_display_mode(), None);
         assert_eq!(model.display_mode, DisplayMode::Signed);
+    }
+
+    #[test]
+    fn select_display_mode_sets_mode_directly() {
+        let mut model = BitTwiddleModel {
+            display_mode: DisplayMode::Decimal,
+            ..Default::default()
+        };
+
+        assert_eq!(model.select_display_mode(DisplayMode::Hex), None);
+        assert_eq!(model.display_mode, DisplayMode::Hex);
+
+        assert_eq!(model.select_display_mode(DisplayMode::Signed), None);
+        assert_eq!(model.display_mode, DisplayMode::Signed);
+
+        assert_eq!(model.select_display_mode(DisplayMode::Octal), None);
+        assert_eq!(model.display_mode, DisplayMode::Octal);
+    }
+
+    #[test]
+    fn select_integer_width_updates_width_value_and_selected_bit() {
+        let mut model = BitTwiddleModel {
+            value: 0x1ff,
+            selected_bit_index: 63,
+            error: Some("problem".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(model.select_integer_width(IntegerWidth::Eight), None);
+
+        assert_eq!(model.integer_width, IntegerWidth::Eight);
+        assert_eq!(model.value, 0xff);
+        assert_eq!(model.selected_bit_index, 7);
+        assert_eq!(model.error, None);
+
+        assert_eq!(model.select_integer_width(IntegerWidth::SixtyFour), None);
+
+        assert_eq!(model.integer_width, IntegerWidth::SixtyFour);
+        assert_eq!(model.value, 0xff);
+        assert_eq!(model.selected_bit_index, 7);
     }
 
     #[test]

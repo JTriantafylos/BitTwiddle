@@ -20,6 +20,8 @@ const MIN_TERMINAL_HEIGHT: u16 = 7;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct AppLayout {
     pub(crate) value_areas: Rect,
+    pub(crate) mode_area: Option<Rect>,
+    pub(crate) width_area: Option<Rect>,
     pub(crate) bit_area: Rect,
     pub(crate) input_area: Rect,
     pub(crate) expression_history_area: Option<Rect>,
@@ -49,6 +51,17 @@ pub(crate) fn app_layout(
 
     let mut y = area.y;
     let value_areas = Rect::new(area.x, y, area.width, 3);
+    let (mode_area, width_area) = if value_areas.width >= 32 {
+        let [_, mode_area, width_area] = Layout::horizontal([
+            Constraint::Min(1),
+            Constraint::Length(6),
+            Constraint::Length(12),
+        ])
+        .areas(value_areas);
+        (Some(mode_area), Some(width_area))
+    } else {
+        (None, None)
+    };
     y += value_areas.height;
     let bit_area = Rect::new(area.x, y, area.width, bit_area_height);
     y += bit_area.height;
@@ -61,6 +74,8 @@ pub(crate) fn app_layout(
 
     Some(AppLayout {
         value_areas,
+        mode_area,
+        width_area,
         bit_area,
         input_area,
         expression_history_area,
@@ -572,6 +587,28 @@ pub(crate) fn hit_test_input(area: Rect, scroll: usize, column: u16, row: u16) -
     }
 }
 
+pub(crate) fn hit_test_display_mode(area: Rect, column: u16) -> Option<DisplayMode> {
+    let x = column.checked_sub(area.x + 1)?;
+    match x {
+        0 => Some(DisplayMode::Decimal),
+        1 => Some(DisplayMode::Signed),
+        2 => Some(DisplayMode::Hex),
+        3 => Some(DisplayMode::Octal),
+        _ => None,
+    }
+}
+
+pub(crate) fn hit_test_width(area: Rect, column: u16) -> Option<IntegerWidth> {
+    let x = column.checked_sub(area.x + 1)?;
+    match x {
+        0 => Some(IntegerWidth::Eight),
+        2 | 3 => Some(IntegerWidth::Sixteen),
+        5 | 6 => Some(IntegerWidth::ThirtyTwo),
+        8 | 9 => Some(IntegerWidth::SixtyFour),
+        _ => None,
+    }
+}
+
 pub(crate) fn hit_test_history(
     area: Rect,
     history_len: usize,
@@ -971,5 +1008,67 @@ mod tests {
         assert_eq!(hit_test_history(area, 1, 81, 11), None);
         assert_eq!(hit_test_history(area, 1, 1, 10), None);
         assert_eq!(hit_test_history(area, 1, 1, 14), None);
+    }
+
+    #[test]
+    fn normal_layout_includes_mode_and_width_areas() {
+        let layout = app_layout(IntegerWidth::SixtyFour, Rect::new(0, 0, 82, 14), 1).unwrap();
+
+        assert!(layout.mode_area.is_some());
+        assert!(layout.width_area.is_some());
+        assert_eq!(layout.mode_area.unwrap().width, 6);
+        assert_eq!(layout.width_area.unwrap().width, 12);
+    }
+
+    #[test]
+    fn narrow_layout_has_no_mode_or_width_areas() {
+        let layout = app_layout(IntegerWidth::SixtyFour, Rect::new(0, 0, 31, 16), 1).unwrap();
+
+        assert!(layout.mode_area.is_none());
+        assert!(layout.width_area.is_none());
+    }
+
+    #[test]
+    fn hit_test_display_mode_maps_columns_to_modes() {
+        let area = Rect::new(0, 0, 82, 3);
+
+        assert_eq!(hit_test_display_mode(area, 1), Some(DisplayMode::Decimal));
+        assert_eq!(hit_test_display_mode(area, 2), Some(DisplayMode::Signed));
+        assert_eq!(hit_test_display_mode(area, 3), Some(DisplayMode::Hex));
+        assert_eq!(hit_test_display_mode(area, 4), Some(DisplayMode::Octal));
+    }
+
+    #[test]
+    fn hit_test_display_mode_ignores_borders_and_outside_area() {
+        let area = Rect::new(0, 0, 82, 3);
+
+        assert_eq!(hit_test_display_mode(area, 0), None);
+        assert_eq!(hit_test_display_mode(area, 5), None);
+        assert_eq!(hit_test_display_mode(area, 81), None);
+    }
+
+    #[test]
+    fn hit_test_width_maps_columns_to_widths() {
+        let area = Rect::new(0, 0, 82, 3);
+
+        assert_eq!(hit_test_width(area, 1), Some(IntegerWidth::Eight));
+        assert_eq!(hit_test_width(area, 3), Some(IntegerWidth::Sixteen));
+        assert_eq!(hit_test_width(area, 4), Some(IntegerWidth::Sixteen));
+        assert_eq!(hit_test_width(area, 6), Some(IntegerWidth::ThirtyTwo));
+        assert_eq!(hit_test_width(area, 7), Some(IntegerWidth::ThirtyTwo));
+        assert_eq!(hit_test_width(area, 9), Some(IntegerWidth::SixtyFour));
+        assert_eq!(hit_test_width(area, 10), Some(IntegerWidth::SixtyFour));
+    }
+
+    #[test]
+    fn hit_test_width_ignores_borders_and_outside_area() {
+        let area = Rect::new(0, 0, 82, 3);
+
+        assert_eq!(hit_test_width(area, 0), None);
+        assert_eq!(hit_test_width(area, 2), None);
+        assert_eq!(hit_test_width(area, 5), None);
+        assert_eq!(hit_test_width(area, 8), None);
+        assert_eq!(hit_test_width(area, 11), None);
+        assert_eq!(hit_test_width(area, 81), None);
     }
 }
