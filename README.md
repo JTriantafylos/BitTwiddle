@@ -7,6 +7,26 @@ toggling without leaving the terminal. Type an expression, inspect the bits,
 switch number bases, or move around the bit grid and flip individual bits by
 hand.
 
+## Quick Start
+
+Launch BitTwiddle and start typing expressions. Each result becomes the current
+value for the next operation.
+
+```text
+0xFF              # value is 255 (0b11111111)
+<< 8              # value is 65280 (0xFF00)
+| 0xFF            # value is 65535 (0xFFFF)
+>> 8              # value is 255 — back where we started
+```
+
+Switch display modes with `m` (decimal → binary → hex → octal → signed) and
+integer widths with `w` (8 → 16 → 32 → 64). Click any display mode or width
+indicator in the UI to switch instantly. Left-click the bit grid to toggle
+individual bits.
+
+Use `Tab` to cycle between expression input, bit manipulation, and calculation
+history. Press `Esc` to dismiss errors, `Ctrl+C` to reset everything.
+
 ## Building & Running
 
 ```sh
