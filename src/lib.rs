@@ -10,7 +10,7 @@ pub mod view;
 use model::{BitTwiddleModel, DisplayMode, InputMode};
 use view::{
     app_layout, expression_input_scroll, footer_help_line_count, hit_test_bit,
-    hit_test_display_mode, hit_test_history, hit_test_input, hit_test_width,
+    hit_test_display_mode, hit_test_history, hit_test_input, hit_test_value_area, hit_test_width,
 };
 
 use expression::IntegerWidth;
@@ -47,6 +47,7 @@ pub enum Message {
     RequestQuit,
     CancelQuit,
     ConfirmQuit,
+    CopyCurrentValue,
 }
 
 pub fn map_key_to_message(model: &BitTwiddleModel, key: KeyEvent) -> Option<Message> {
@@ -177,6 +178,7 @@ pub fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::RequestQuit => model.request_quit(),
         Message::CancelQuit => model.cancel_quit(),
         Message::ConfirmQuit => model.confirm_quit(),
+        Message::CopyCurrentValue => model.copy_current_value(),
     }
 }
 
@@ -206,6 +208,10 @@ pub fn map_mouse_to_message(
                 .width_area
                 .and_then(|area| hit_test_width(area, mouse.column))
                 .map(Message::SelectIntegerWidth)
+        })
+        .or_else(|| {
+            hit_test_value_area(layout.value_areas, mouse.column, mouse.row)
+                .then_some(Message::CopyCurrentValue)
         })
         .or_else(|| {
             hit_test_bit(
@@ -423,6 +429,22 @@ mod tests {
         assert_eq!(
             map_mouse_to_message(&model, left_click(79, 1), frame_area),
             Some(Message::SelectIntegerWidth(IntegerWidth::SixtyFour))
+        );
+    }
+
+    #[test]
+    fn mouse_mapping_targets_value_area() {
+        let frame_area = Rect::new(0, 0, 82, 17);
+        let model = BitTwiddleModel::default();
+
+        // Value area inner content is at row 1 (middle row of the 3-row value zone)
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(2, 1), frame_area),
+            Some(Message::CopyCurrentValue)
+        );
+        assert_eq!(
+            map_mouse_to_message(&model, left_click(40, 1), frame_area),
+            Some(Message::CopyCurrentValue)
         );
     }
 

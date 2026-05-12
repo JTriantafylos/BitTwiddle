@@ -124,6 +124,8 @@ focused helpers or small methods before adding larger abstractions.
   display mode.
 - Left-clicking an integer width indicator (8/16/32/64) in the top row selects
   that integer width.
+- Left-clicking anywhere in the current value area (the main value display)
+  copies the formatted current value to the system clipboard.
 - These click-to-switch areas are only present when the terminal is at least 32
   characters wide; on narrower terminals the display mode and width are shown
   compactly in the value area title and are not clickable.

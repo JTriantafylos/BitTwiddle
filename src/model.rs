@@ -1,3 +1,5 @@
+use arboard::Clipboard;
+
 use crate::{
     Message,
     expression::{IntegerWidth, ParsedExpression, compute_expr, parse_expr},
@@ -378,6 +380,14 @@ impl BitTwiddleModel {
                     .saturating_add(1)
                     .clamp(0, last_index),
             );
+        }
+        None
+    }
+
+    pub(crate) fn copy_current_value(&mut self) -> Option<Message> {
+        let formatted = self.format_value_readout();
+        if let Ok(mut clipboard) = Clipboard::new() {
+            let _ = clipboard.set_text(formatted);
         }
         None
     }

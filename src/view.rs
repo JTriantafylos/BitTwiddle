@@ -587,6 +587,14 @@ pub(crate) fn hit_test_input(area: Rect, scroll: usize, column: u16, row: u16) -
     }
 }
 
+pub(crate) fn hit_test_value_area(area: Rect, column: u16, row: u16) -> bool {
+    let x = column.checked_sub(area.x + 1).unwrap_or(u16::MAX);
+    let y = row.checked_sub(area.y + 1).unwrap_or(u16::MAX);
+    let inner_width = area.width.saturating_sub(2);
+    let inner_height = area.height.saturating_sub(2);
+    x < inner_width && y < inner_height
+}
+
 pub(crate) fn hit_test_display_mode(area: Rect, column: u16) -> Option<DisplayMode> {
     let x = column.checked_sub(area.x + 1)?;
     match x {
@@ -1070,5 +1078,28 @@ mod tests {
         assert_eq!(hit_test_width(area, 8), None);
         assert_eq!(hit_test_width(area, 11), None);
         assert_eq!(hit_test_width(area, 81), None);
+    }
+
+    #[test]
+    fn hit_test_value_area_detects_clicks_inside_value_display() {
+        let area = Rect::new(0, 0, 82, 3);
+
+        assert!(hit_test_value_area(area, 1, 1));
+        assert!(hit_test_value_area(area, 40, 1));
+        assert!(hit_test_value_area(area, 80, 1));
+    }
+
+    #[test]
+    fn hit_test_value_area_ignores_borders_and_outside_area() {
+        let area = Rect::new(0, 0, 82, 3);
+
+        // Top and bottom borders
+        assert!(!hit_test_value_area(area, 1, 0));
+        assert!(!hit_test_value_area(area, 1, 2));
+        // Outside vertical range
+        assert!(!hit_test_value_area(area, 1, 3));
+        // Left and right borders
+        assert!(!hit_test_value_area(area, 0, 1));
+        assert!(!hit_test_value_area(area, 81, 1));
     }
 }
