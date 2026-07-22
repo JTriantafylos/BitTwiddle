@@ -35,8 +35,8 @@ Core behavior:
 - `Cargo.toml`: package metadata and dependencies.
 - `src/lib.rs`: library crate root, shared `Message` type, terminal key/mouse
   mapping, and update dispatch.
-- `src/main.rs`: binary entry point, terminal lifecycle, event reading, and the
-  draw/update loop.
+- `src/main.rs`: binary entry point, CLI argument parsing, terminal lifecycle,
+  event reading, and the draw/update loop.
 - `src/view.rs`: rendering, layout, scrolling, and hit-testing helpers.
 - `src/model.rs`: model state, state transitions, input/history behavior, and
   display/history formatting helpers.
@@ -53,6 +53,7 @@ Use these from the repository root:
 - `cargo check`: fast compile/type check.
 - `cargo test`: run the unit test suite.
 - `cargo run`: launch the TUI locally.
+- `--version`: print the package name and version, then exit (no terminal).
 
 Run `cargo fmt` and `cargo check` after code changes. Run `cargo test` when
 adding tests or changing parsing, computation, cursor movement, history, or bit

@@ -17,8 +17,19 @@ fn handle_event(frame_area: Rect) -> Result<Option<Message>, io::Error> {
 }
 
 fn main() -> Result<(), io::Error> {
-    let mut terminal = ratatui::init();
-    let result = (|| {
+    if std::env::args().any(|a| a == "--version") {
+        println!(
+            "{} version {}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        );
+        println!("Author: {}", env!("CARGO_PKG_AUTHORS"));
+        println!("License: {}", env!("CARGO_PKG_LICENSE"));
+        return Ok(());
+    }
+
+    let result = (|| -> Result<(), io::Error> {
+        let mut terminal = ratatui::init();
         execute!(io::stdout(), EnableMouseCapture)?;
         let mut model = BitTwiddleModel::default();
 
