@@ -126,6 +126,7 @@ active width's two's-complement interpretation.
 - `Esc`: Dismiss an error
 - `q`: Quit
 - Left-click the input box: Switch to expression input mode and move the cursor
+- Middle-click the input box: Paste clipboard contents into the expression input
 - Left-click the value display: Copy the current value (in the active display mode and width) to the clipboard
 - Left-click a display mode indicator (D/S/H/O): Select that display mode
 - Left-click an integer width indicator (8/16/32/64): Select that integer width

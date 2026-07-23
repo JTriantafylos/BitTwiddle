@@ -48,6 +48,7 @@ pub enum Message {
     CancelQuit,
     ConfirmQuit,
     CopyCurrentValue,
+    PasteFromClipboard,
 }
 
 pub fn map_key_to_message(model: &BitTwiddleModel, key: KeyEvent) -> Option<Message> {
@@ -116,7 +117,7 @@ fn map_expression_input_key_to_message(key: KeyEvent) -> Option<Message> {
     }
 }
 
-fn is_expression_input_char(c: char) -> bool {
+pub(crate) fn is_expression_input_char(c: char) -> bool {
     if c.is_ascii_hexdigit() || c.is_ascii_whitespace() {
         return true;
     }
@@ -179,6 +180,7 @@ pub fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
         Message::CancelQuit => model.cancel_quit(),
         Message::ConfirmQuit => model.confirm_quit(),
         Message::CopyCurrentValue => model.copy_current_value(),
+        Message::PasteFromClipboard => model.paste_from_clipboard(),
     }
 }
 
@@ -187,8 +189,15 @@ pub fn map_mouse_to_message(
     mouse: MouseEvent,
     frame_area: Rect,
 ) -> Option<Message> {
-    if model.show_quit_confirmation() || mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+    if model.show_quit_confirmation() {
         return None;
+    }
+    let down = match mouse.kind {
+        MouseEventKind::Down(button) => button,
+        _ => return None,
+    };
+    if down == MouseButton::Middle {
+        return Some(Message::PasteFromClipboard);
     }
 
     let layout = app_layout(
@@ -291,6 +300,70 @@ mod tests {
         assert_eq!(
             map_key_to_message(&model, key(KeyCode::Char('W'))),
             Some(Message::PrevIntegerWidth)
+        );
+    }
+
+    fn middle_click() -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Middle),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    fn right_click() -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    fn mouse_up() -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn middle_click_pastes_into_expression_input() {
+        let model = BitTwiddleModel::default();
+        let frame_area = Rect::new(0, 0, 82, 17);
+
+        assert_eq!(
+            map_mouse_to_message(&model, middle_click(), frame_area),
+            Some(Message::PasteFromClipboard),
+        );
+    }
+
+    #[test]
+    fn middle_click_ignores_non_middle_buttons_and_non_down_events() {
+        let model = BitTwiddleModel::default();
+        let frame_area = Rect::new(0, 0, 82, 17);
+
+        assert_eq!(
+            map_mouse_to_message(&model, right_click(), frame_area),
+            None,
+        );
+        assert_eq!(map_mouse_to_message(&model, mouse_up(), frame_area), None,);
+    }
+
+    #[test]
+    fn middle_click_ignores_quit_confirmation() {
+        let model = BitTwiddleModel {
+            show_quit_confirmation: true,
+            ..Default::default()
+        };
+        let frame_area = Rect::new(0, 0, 82, 17);
+
+        assert_eq!(
+            map_mouse_to_message(&model, middle_click(), frame_area),
+            None,
         );
     }
 

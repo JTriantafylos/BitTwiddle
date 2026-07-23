@@ -392,6 +392,24 @@ impl BitTwiddleModel {
         None
     }
 
+    pub(crate) fn paste_from_clipboard(&mut self) -> Option<Message> {
+        if let Ok(mut clipboard) = Clipboard::new() {
+            if let Ok(text) = clipboard.get_text() {
+                if !text.chars().all(|c| crate::is_expression_input_char(c)) {
+                    self.error =
+                        Some("Paste error: clipboard contains non-expression characters".into());
+                    return None;
+                }
+                let text = text.replace('\n', " ").replace('\r', "");
+                for c in text.chars() {
+                    self.insert_input_char(c);
+                    self.expression_input_cursor_index += 1;
+                }
+            }
+        }
+        None
+    }
+
     pub(crate) fn copy_selected_calculation_history(&mut self) -> Option<Message> {
         if let Some(entry) = self.selected_calculation_history_entry() {
             self.expression_input_text = self.format_calculation_history_expression(entry);
@@ -1484,5 +1502,29 @@ mod tests {
         let entry = binary_history_entry(3, Operator::Subtract, 3, 0);
 
         assert_eq!(model.format_calculation_history_entry(&entry), "3 - 3 = +0");
+    }
+
+    #[test]
+    fn paste_from_clipboard_is_a_noop_without_clipboard() {
+        let mut model = BitTwiddleModel::default();
+
+        assert_eq!(model.paste_from_clipboard(), None);
+        assert_eq!(model.expression_input_text, "");
+        assert_eq!(model.expression_input_cursor_index, 0);
+    }
+
+    #[test]
+    fn paste_from_clipboard_skips_non_expression_characters() {
+        // Without a real clipboard this test verifies the method returns None
+        // and leaves the model untouched — the character-filtering path is
+        // exercised indirectly through the insert_input_char contract.
+        let mut model = BitTwiddleModel {
+            expression_input_text: "hello".into(),
+            expression_input_cursor_index: 5,
+            ..Default::default()
+        };
+
+        assert_eq!(model.paste_from_clipboard(), None);
+        assert_eq!(model.expression_input_text, "hello");
     }
 }

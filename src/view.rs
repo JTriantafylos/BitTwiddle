@@ -333,6 +333,7 @@ fn footer_controls(model: &BitTwiddleModel) -> Vec<(&'static str, &'static str)>
                 ("Enter", "Submit"),
                 ("Left/Right", "Move"),
                 ("Up/Down", "History"),
+                ("Middle-Click", "Paste"),
             ]);
         }
         InputMode::HistorySelect => {
@@ -897,10 +898,11 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(footer_help_line_count(&model, 40), 3);
+        assert_eq!(footer_help_line_count(&model, 40), 4);
         assert!(lines.iter().all(|line| line.len() <= 40));
         assert!(lines.join("\n").contains("Ctrl+C Clear"));
         assert!(lines.join("\n").contains("Left/Right Move"));
+        assert!(lines.join("\n").contains("Middle-Click Paste"));
     }
 
     #[test]
