@@ -19,6 +19,7 @@ use expression::IntegerWidth;
 pub enum Message {
     KeyPressed(KeyEvent),
     MousePressed(MouseEvent, Rect),
+    ShowNotification(String),
     ClearInput,
     SubmitExpression,
     ShiftInputCursor(isize),
@@ -146,9 +147,22 @@ pub(crate) fn is_expression_input_char(c: char) -> bool {
 }
 
 pub fn update(model: &mut BitTwiddleModel, msg: Message) -> Option<Message> {
+    // Clear any existing notifications when handling a new message.
+    let should_clear_notif = match msg {
+        // Don't clear notifications on mouse-up, otherwise notifications created by mouse-down
+        // events will be cleared immediately.
+        Message::MousePressed(mouse, _) => matches!(mouse.kind, MouseEventKind::Down(_)),
+        _ => true,
+    };
+
+    if should_clear_notif {
+        model.clear_notification();
+    }
+
     match msg {
         Message::KeyPressed(key) => map_key_to_message(model, key),
         Message::MousePressed(mouse, area) => map_mouse_to_message(model, mouse, area),
+        Message::ShowNotification(text) => model.show_notification(text),
         Message::ClearInput => model.clear_input(),
         Message::SubmitExpression => model.submit_expression(),
         Message::ShiftInputCursor(offset) => model.shift_input_cursor(offset),
@@ -558,5 +572,121 @@ mod tests {
             map_mouse_to_message(&confirming_quit, left_click(5, 4), frame_area),
             None
         );
+    }
+
+    #[test]
+    fn notification_clears_on_key_press() {
+        let mut model = BitTwiddleModel {
+            notification: Some("test".into()),
+            ..Default::default()
+        };
+
+        update(&mut model, Message::KeyPressed(key(KeyCode::Char('a'))));
+
+        assert_eq!(model.notification, None);
+    }
+
+    #[test]
+    fn notification_clears_on_submit_expression() {
+        let mut model = BitTwiddleModel {
+            notification: Some("test".into()),
+            expression_input_text: "1 + 1".into(),
+            expression_input_cursor_index: 5,
+            ..Default::default()
+        };
+
+        update(&mut model, Message::SubmitExpression);
+
+        assert_eq!(model.notification, None);
+    }
+
+    #[test]
+    fn notification_clears_on_bit_toggle() {
+        let mut model = BitTwiddleModel {
+            notification: Some("test".into()),
+            ..Default::default()
+        };
+
+        update(&mut model, Message::ToggleSelectedBit);
+
+        assert_eq!(model.notification, None);
+    }
+
+    #[test]
+    fn notification_clears_on_display_mode_change() {
+        let mut model = BitTwiddleModel {
+            notification: Some("test".into()),
+            ..Default::default()
+        };
+
+        update(&mut model, Message::NextDisplayMode);
+
+        assert_eq!(model.notification, None);
+    }
+
+    #[test]
+    fn notification_does_not_clear_on_mouse_drag() {
+        let mut model = BitTwiddleModel {
+            notification: Some("test".into()),
+            ..Default::default()
+        };
+
+        let drag_event = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        update(
+            &mut model,
+            Message::MousePressed(drag_event, Rect::new(0, 0, 82, 17)),
+        );
+
+        assert_eq!(model.notification, Some("test".into()));
+    }
+
+    #[test]
+    fn notification_does_not_clear_on_mouse_move() {
+        let mut model = BitTwiddleModel {
+            notification: Some("test".into()),
+            ..Default::default()
+        };
+
+        let move_event = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        update(
+            &mut model,
+            Message::MousePressed(move_event, Rect::new(0, 0, 82, 17)),
+        );
+
+        assert_eq!(model.notification, Some("test".into()));
+    }
+
+    #[test]
+    fn notification_does_not_clear_on_mouse_up() {
+        let mut model = BitTwiddleModel {
+            notification: Some("test".into()),
+            ..Default::default()
+        };
+
+        let up_event = MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        update(
+            &mut model,
+            Message::MousePressed(up_event, Rect::new(0, 0, 82, 17)),
+        );
+
+        assert_eq!(model.notification, Some("test".into()));
     }
 }

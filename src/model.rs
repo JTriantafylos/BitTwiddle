@@ -89,6 +89,7 @@ pub struct BitTwiddleModel {
     pub(crate) calculation_history: Vec<CalculationHistoryEntry>,
     pub(crate) calculation_history_selection_index: Option<usize>,
     pub(crate) selected_bit_index: usize,
+    pub(crate) notification: Option<String>,
 }
 
 impl BitTwiddleModel {
@@ -110,6 +111,16 @@ impl BitTwiddleModel {
 
     pub(crate) fn calculation_history_len(&self) -> usize {
         self.calculation_history.len()
+    }
+
+    pub(crate) fn show_notification(&mut self, message: String) -> Option<Message> {
+        self.notification = Some(message);
+        None
+    }
+
+    pub(crate) fn clear_notification(&mut self) -> Option<Message> {
+        self.notification = None;
+        None
     }
 
     pub(crate) fn clear_input(&mut self) -> Option<Message> {
@@ -387,7 +398,9 @@ impl BitTwiddleModel {
     pub(crate) fn copy_current_value(&mut self) -> Option<Message> {
         let formatted = self.format_value_readout();
         if let Ok(mut clipboard) = Clipboard::new() {
-            let _ = clipboard.set_text(formatted);
+            if clipboard.set_text(&formatted).is_ok() {
+                self.show_notification(format!("Copied '{}' to clipboard!", formatted).into());
+            }
         }
         None
     }
@@ -1526,5 +1539,31 @@ mod tests {
 
         assert_eq!(model.paste_from_clipboard(), None);
         assert_eq!(model.expression_input_text, "hello");
+    }
+
+    #[test]
+    fn default_model_has_no_notification() {
+        let model = BitTwiddleModel::default();
+
+        assert_eq!(model.notification, None);
+    }
+
+    #[test]
+    fn set_notification_stores_the_message() {
+        let mut model = BitTwiddleModel::default();
+
+        model.show_notification("Hello".into());
+
+        assert_eq!(model.notification, Some("Hello".into()));
+    }
+
+    #[test]
+    fn set_notification_overwrites_previous_notification() {
+        let mut model = BitTwiddleModel::default();
+
+        model.show_notification("First".into());
+        model.show_notification("Second".into());
+
+        assert_eq!(model.notification, Some("Second".into()));
     }
 }

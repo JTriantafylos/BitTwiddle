@@ -96,10 +96,20 @@ pub fn view(model: &BitTwiddleModel, frame: &mut Frame) {
 
     let value_areas = layout.value_areas;
 
-    let val_text = Text::from(match &model.error {
+    let value_content = match &model.error {
         Some(err) => err.to_string(),
         None => model.format_value_readout(),
-    });
+    };
+
+    let val_text = if let Some(ref notif) = model.notification {
+        let notification_span = Span::styled(notif, Style::default().fg(Color::Green).bold());
+        Text::from(vec![
+            Line::from(notification_span),
+            Line::from(value_content),
+        ])
+    } else {
+        Text::from(value_content)
+    };
     if value_areas.width >= 32 {
         let [value_area, mode_area, width_area] = Layout::horizontal([
             Constraint::Min(1),
