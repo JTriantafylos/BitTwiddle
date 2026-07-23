@@ -50,14 +50,15 @@ alongside the library modules; `src/main.rs` should stay thin.
 Use these from the repository root:
 
 - `cargo fmt`: format Rust code.
+- `cargo clippy`: lint for common mistakes and style issues.
 - `cargo check`: fast compile/type check.
 - `cargo test`: run the unit test suite.
 - `cargo run`: launch the TUI locally.
 - `--version`: print the package name and version, then exit (no terminal).
 
-Run `cargo fmt` and `cargo check` after code changes. Run `cargo test` when
-adding tests or changing parsing, computation, cursor movement, history, or bit
-selection behavior.
+Run `cargo fmt`, `cargo clippy`, and `cargo check` after code changes. Run
+`cargo test` when adding tests or changing parsing, computation, cursor
+movement, history, or bit selection behavior.
 
 ## Architecture Notes
 

@@ -397,25 +397,25 @@ impl BitTwiddleModel {
 
     pub(crate) fn copy_current_value(&mut self) -> Option<Message> {
         let formatted = self.format_value_readout();
-        if let Ok(mut clipboard) = Clipboard::new() {
-            if clipboard.set_text(&formatted).is_ok() {
-                self.show_notification(format!("Copied '{}' to clipboard!", formatted).into());
-            }
+        if let Ok(mut clipboard) = Clipboard::new()
+            && clipboard.set_text(&formatted).is_ok()
+        {
+            self.show_notification(format!("Copied '{}' to clipboard!", formatted));
         }
         None
     }
 
     pub(crate) fn paste_from_clipboard(&mut self) -> Option<Message> {
-        if let Ok(mut clipboard) = Clipboard::new() {
-            if let Ok(text) = clipboard.get_text() {
-                self.apply_pasted_text(&text);
-            }
+        if let Ok(mut clipboard) = Clipboard::new()
+            && let Ok(text) = clipboard.get_text()
+        {
+            self.apply_pasted_text(&text);
         }
         None
     }
 
     fn apply_pasted_text(&mut self, text: &str) {
-        if !text.chars().all(|c| crate::is_expression_input_char(c)) {
+        if !text.chars().all(crate::is_expression_input_char) {
             self.error = Some("Paste error: clipboard contains non-expression characters".into());
             return;
         }
