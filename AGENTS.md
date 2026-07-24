@@ -62,6 +62,15 @@ movement, history, or bit selection behavior.
 
 ## Architecture Notes
 
+BitTwiddle has two entry points in `src/main.rs`:
+
+- **TUI mode** (default): launches the Ratatui interactive terminal UI when no
+  non-flag arguments are given.
+- **CLI mode**: evaluates a single expression from positional arguments and
+  prints the result to stdout in four formats (decimal, signed, hex, octal),
+  one per line. Triggered by any non-flag argument (e.g.
+  `bittwiddle 6 + 5`). Supports the `--width` flag.
+
 The current code follows a simple Elm-style loop:
 
 - `BitTwiddleModel` holds all app state.

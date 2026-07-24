@@ -499,6 +499,24 @@ impl BitTwiddleModel {
         self.format_display_value(self.value)
     }
 
+    /// Formats a computed result for CLI output in the given mode and width.
+    pub fn format_result(value: u64, width: IntegerWidth, display_mode: DisplayMode) -> String {
+        let masked = value & width.mask();
+        match display_mode {
+            DisplayMode::Signed => {
+                let signed_value = signed_interpretation_for_width(width, masked);
+                if signed_value >= 0 {
+                    format!("+{}", signed_value)
+                } else {
+                    signed_value.to_string()
+                }
+            }
+            DisplayMode::Decimal => masked.to_string(),
+            DisplayMode::Hex => format!("{:#X}", masked),
+            DisplayMode::Octal => format!("{:#o}", masked),
+        }
+    }
+
     fn format_display_value(&self, value: u64) -> String {
         let value = value & self.integer_width.mask();
         match self.display_mode {
@@ -528,13 +546,17 @@ impl BitTwiddleModel {
     }
 
     fn signed_interpretation(&self, value: u64) -> i128 {
-        let value = (value & self.integer_width.mask()) as i128;
-        let sign_bit = 1_i128 << (self.integer_width.bits() - 1);
-        if value & sign_bit == 0 {
-            value
-        } else {
-            value - (1_i128 << self.integer_width.bits())
-        }
+        signed_interpretation_for_width(self.integer_width, value)
+    }
+}
+
+fn signed_interpretation_for_width(width: IntegerWidth, value: u64) -> i128 {
+    let value = (value & width.mask()) as i128;
+    let sign_bit = 1_i128 << (width.bits() - 1);
+    if value & sign_bit == 0 {
+        value
+    } else {
+        value - (1_i128 << width.bits())
     }
 }
 

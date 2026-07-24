@@ -34,6 +34,34 @@ cargo build
 cargo run
 ```
 
+## CLI Usage
+
+BitTwiddle can also evaluate a single expression from the command line and
+print the result, without opening the terminal UI:
+
+```sh
+bittwiddle 6 + 5
+# 11
+# +11
+# 0xB
+# 0o13
+
+bittwiddle --width 8 255 + 1
+# 0
+# +0
+# 0x0
+# 0o0
+```
+
+The result is printed in four formats (decimal, signed, hex, octal), one per
+line. Supported flags:
+
+- `--width <8|16|32|64>` — integer width (default: 64)
+- `-h, --help` — show usage
+- `--version` — show version
+
+Errors are printed to stderr with a non-zero exit code.
+
 ## Supported Input
 
 Expression input accepts ASCII expression syntax only: digits, hex letters,
