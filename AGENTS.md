@@ -69,7 +69,7 @@ BitTwiddle has two entry points in `src/main.rs`:
 - **CLI mode**: evaluates a single expression from positional arguments and
   prints the result to stdout in four formats (decimal, signed, hex, octal),
   one per line. Triggered by any non-flag argument (e.g.
-  `bittwiddle 6 + 5`). Supports the `--width` flag.
+  `bittwiddle 6 + 5`). Supports the `-w`/`--width` flag.
 
 The current code follows a simple Elm-style loop:
 

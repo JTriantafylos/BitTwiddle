@@ -56,7 +56,7 @@ bittwiddle --width 8 255 + 1
 The result is printed in four formats (decimal, signed, hex, octal), one per
 line. Supported flags:
 
-- `--width <8|16|32|64>` — integer width (default: 64)
+- `-w <8|16|32|64>`, `--width <8|16|32|64>` — integer width (default: 64)
 - `-h, --help` — show usage
 - `--version` — show version
 

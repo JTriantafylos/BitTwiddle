@@ -59,15 +59,39 @@ enum CliParseResult {
     Tui,
 }
 
+enum CliArg {
+    Help,
+    WidthFlag,
+    Expression(String),
+}
+
+fn classify_arg(arg: &str) -> CliArg {
+    match arg {
+        "--help" | "-h" => CliArg::Help,
+        "--width" | "-w" => CliArg::WidthFlag,
+        other => CliArg::Expression(other.to_string()),
+    }
+}
+
+enum ParseState {
+    Idle,
+    ExpectingWidth,
+}
+
 fn parse_cli_args(args: &[String]) -> CliParseResult {
+    let mut state = ParseState::Idle;
     let mut width = IntegerWidth::default();
     let mut expression_parts = Vec::new();
-    let mut pending_flag = None;
 
     for arg in args.iter().skip(1) {
-        if let Some(flag) = pending_flag.take() {
-            match flag {
-                "--width" => match arg.as_str() {
+        match state {
+            ParseState::Idle => match classify_arg(arg) {
+                CliArg::Help => return CliParseResult::Help,
+                CliArg::WidthFlag => state = ParseState::ExpectingWidth,
+                CliArg::Expression(expr) => expression_parts.push(expr),
+            },
+            ParseState::ExpectingWidth => {
+                match arg.as_str() {
                     "8" => width = IntegerWidth::Eight,
                     "16" => width = IntegerWidth::Sixteen,
                     "32" => width = IntegerWidth::ThirtyTwo,
@@ -78,23 +102,14 @@ fn parse_cli_args(args: &[String]) -> CliParseResult {
                             arg
                         ));
                     }
-                },
-                _ => unreachable!(),
+                }
+                state = ParseState::Idle;
             }
-            continue;
-        }
-
-        if arg == "--help" || arg == "-h" {
-            return CliParseResult::Help;
-        } else if arg == "--width" {
-            pending_flag = Some(arg.as_str());
-        } else {
-            expression_parts.push(arg.clone());
         }
     }
 
-    if let Some(flag) = pending_flag {
-        return CliParseResult::Error(format!("missing value for {}", flag));
+    if let ParseState::ExpectingWidth = state {
+        return CliParseResult::Error("missing value for --width".into());
     }
 
     if expression_parts.is_empty() {
@@ -115,7 +130,7 @@ fn print_help() {
 evaluate a bitwise expression and print the result
 
 flags:
-    --width <n>        integer width: 8, 16, 32, or 64 (default: 64)
+    -w, --width <n>    integer width: 8, 16, 32, or 64 (default: 64)
     -h, --help         show this help message
     --version          show version information
 
