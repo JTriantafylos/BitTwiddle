@@ -59,56 +59,37 @@ enum CliParseResult {
     Tui,
 }
 
-enum CliArg {
-    Help,
-    WidthFlag,
-    Expression(String),
-}
-
-fn classify_arg(arg: &str) -> CliArg {
-    match arg {
-        "--help" | "-h" => CliArg::Help,
-        "--width" | "-w" => CliArg::WidthFlag,
-        other => CliArg::Expression(other.to_string()),
-    }
-}
-
-enum ParseState {
-    Idle,
-    ExpectingWidth,
-}
-
 fn parse_cli_args(args: &[String]) -> CliParseResult {
-    let mut state = ParseState::Idle;
+    let mut expecting_width = false;
     let mut width = IntegerWidth::default();
     let mut expression_parts = Vec::new();
 
     for arg in args.iter().skip(1) {
-        match state {
-            ParseState::Idle => match classify_arg(arg) {
-                CliArg::Help => return CliParseResult::Help,
-                CliArg::WidthFlag => state = ParseState::ExpectingWidth,
-                CliArg::Expression(expr) => expression_parts.push(expr),
-            },
-            ParseState::ExpectingWidth => {
-                match arg.as_str() {
-                    "8" => width = IntegerWidth::Eight,
-                    "16" => width = IntegerWidth::Sixteen,
-                    "32" => width = IntegerWidth::ThirtyTwo,
-                    "64" => width = IntegerWidth::SixtyFour,
-                    _ => {
-                        return CliParseResult::Error(format!(
-                            "invalid width: {} (expected 8, 16, 32, or 64)",
-                            arg
-                        ));
-                    }
+        if expecting_width {
+            match arg.as_str() {
+                "8" => width = IntegerWidth::Eight,
+                "16" => width = IntegerWidth::Sixteen,
+                "32" => width = IntegerWidth::ThirtyTwo,
+                "64" => width = IntegerWidth::SixtyFour,
+                _ => {
+                    return CliParseResult::Error(format!(
+                        "invalid width: {} (expected 8, 16, 32, or 64)",
+                        arg
+                    ));
                 }
-                state = ParseState::Idle;
             }
+            expecting_width = false;
+            continue;
+        }
+
+        match arg.as_str() {
+            "--help" | "-h" => return CliParseResult::Help,
+            "--width" | "-w" => expecting_width = true,
+            other => expression_parts.push(other.to_string()),
         }
     }
 
-    if let ParseState::ExpectingWidth = state {
+    if expecting_width {
         return CliParseResult::Error("missing value for --width".into());
     }
 
@@ -145,22 +126,14 @@ examples:
 fn evaluate_expression(expression: &str, width: IntegerWidth) -> Result<(), String> {
     let parsed = expression::parse_expr(width, 0, expression)?;
     let result = expression::compute_expr(width, parsed)?;
-    println!(
-        "{}",
-        BitTwiddleModel::format_result(result, width, DisplayMode::Decimal)
-    );
-    println!(
-        "{}",
-        BitTwiddleModel::format_result(result, width, DisplayMode::Signed)
-    );
-    println!(
-        "{}",
-        BitTwiddleModel::format_result(result, width, DisplayMode::Hex)
-    );
-    println!(
-        "{}",
-        BitTwiddleModel::format_result(result, width, DisplayMode::Octal)
-    );
+    for mode in [
+        DisplayMode::Decimal,
+        DisplayMode::Signed,
+        DisplayMode::Hex,
+        DisplayMode::Octal,
+    ] {
+        println!("{}", BitTwiddleModel::format_result(result, width, mode));
+    }
     Ok(())
 }
 
@@ -172,10 +145,10 @@ fn run_tui() -> Result<(), io::Error> {
     while model.is_running() {
         terminal.draw(|f| view(&model, f))?;
         let frame_area = terminal.size()?.into();
-        let mut current_msg = handle_event(frame_area)?;
+        let mut msg = handle_event(frame_area)?;
 
-        while let Some(msg) = current_msg {
-            current_msg = update(&mut model, msg);
+        while let Some(m) = msg {
+            msg = update(&mut model, m);
         }
     }
 
